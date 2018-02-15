@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">RoverRemote</string>
+    <string name="slider_value">Value</string>
+    <string name="image_description">Live video feed</string>
+    <string name="joystick_description">Control joystick by dragging</string>
+    <string name="connection_toast">Connecting…</string>
+    <string name="disconnection_toast">Connection stopped</string>
+    <string name="no_connection_wrong_name">WiFi has wrong name</string>
+    <string name="connection_response_toast">Got response</string>
+    <string name="connection_failed">Connection failed to</string>
+    <string name="connection_successful">Connection ok</string>
+</resources>
