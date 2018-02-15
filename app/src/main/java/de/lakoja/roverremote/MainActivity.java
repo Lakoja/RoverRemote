@@ -17,9 +17,11 @@
 package de.lakoja.roverremote;
 
 import android.content.Context;
+import android.content.DialogInterface;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.widget.CompoundButton;
@@ -41,25 +43,38 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
     private JoystickView positionControl;
 
     private WifiManager wifiManager;
+    private RoverConnection roverConnection;
+
+    // TODO app close does not close connection
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        connectButtons();
+        wifiManager = (WifiManager)getApplicationContext().getSystemService(Context.WIFI_SERVICE);
 
-        connectionStrength = findViewById(R.id.connectionStrength);
-        connectionStrength.setQuality(20);
-        connectionThroughput = findViewById(R.id.connectionThroughput);
-        connectionThroughput.setQuality(90);
+        if (null == wifiManager) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.cannot_start_wifi_title);
+            builder.setMessage(R.string.cannot_start_wifi);
+            builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                    MainActivity.this.finish();
+                }
+            });
+            builder.show();
+        } else {
+            connectButtons();
 
-        positionControl = findViewById(R.id.joystick);
-        positionControl.setPositionChangeListener(this);
+            connectionStrength = findViewById(R.id.connectionStrength);
+            connectionStrength.setQuality(0);
+            connectionThroughput = findViewById(R.id.connectionThroughput);
+            connectionThroughput.setQuality(0);
 
-
-        // TODO check for isWifiEnabled (on app start)
-        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            positionControl = findViewById(R.id.joystick);
+            positionControl.setPositionChangeListener(this);
+        }
     }
 
     private void connectButtons() {
@@ -79,14 +94,12 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
     @Override
     public void onCheckedChanged(CompoundButton compoundButton, boolean isCheckedNow) {
         if (compoundButton == toggleConnection) {
-            if (wifiManager != null) {
-                WifiInfo wi = wifiManager.getConnectionInfo();
-                if (!wi.getSSID().replaceAll("^\"|\"$", "").equals("Roversnail")) {
-                    Log.e(TAG, "Wifi has wrong name "+wi.getSSID());
-                    Toast.makeText(this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
-                    toggleConnection.setChecked(false);
-                    return;
-                }
+            WifiInfo wi = wifiManager.getConnectionInfo();
+            if (!wi.getSSID().replaceAll("^\"|\"$", "").equals("Roversnail")) {
+                Log.e(TAG, "Wifi has wrong name "+wi.getSSID());
+                Toast.makeText(this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
+                toggleConnection.setChecked(false);
+                return;
             }
 
             toggleLed1.setEnabled(isCheckedNow);
@@ -97,8 +110,8 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 String remoteIp = determineRatIp();
                 if (remoteIp != null) {
                     try {
-                        RoverConnection rc = new RoverConnection(remoteIp, this);
-                        rc.makeRequest("status");
+                        roverConnection = new RoverConnection(remoteIp, this);
+                        roverConnection.openControlConnection();
                     } catch (Exception exc) {
                         // TODO do more
                         Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
@@ -108,27 +121,25 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 }
                 // TODO else?
             } else {
+                roverConnection.closeControlConnection();
+                roverConnection = null;
                 Toast.makeText(this, R.string.disconnection_toast, Toast.LENGTH_LONG).show();
             }
         }
     }
 
     private String determineRatIp() {
-        if (wifiManager != null) {
-            WifiInfo wi = wifiManager.getConnectionInfo();
-            int i = wi.getIpAddress();
-            InetAddress ip = null;
-            byte[] rawAddress = new byte[]{(byte) (i), (byte) (i >> 8), (byte) (i >> 16), (byte) (i >> 24)};
+        WifiInfo wi = wifiManager.getConnectionInfo();
+        int i = wi.getIpAddress();
+        InetAddress ip = null;
+        byte[] rawAddress = new byte[]{(byte) (i), (byte) (i >> 8), (byte) (i >> 16), (byte) (i >> 24)};
 
-            // TODO IPv6?
-            rawAddress[3] = 1;
-            //InetAddress hostIp = InetAddress.getByAddress(rawAddress);
-            String hostIpS = (rawAddress[0] & 0xff) + "." + (rawAddress[1] & 0xff) + "." + (rawAddress[2] & 0xff) + "." + (rawAddress[3] & 0xff);
+        // TODO IPv6?
+        rawAddress[3] = 1;
+        //InetAddress hostIp = InetAddress.getByAddress(rawAddress);
+        String hostIpS = (rawAddress[0] & 0xff) + "." + (rawAddress[1] & 0xff) + "." + (rawAddress[2] & 0xff) + "." + (rawAddress[3] & 0xff);
 
-            return hostIpS;
-        }
-
-        return null;
+        return hostIpS;
     }
 
     public void informConnectionResult(int returnCode, String requested, String message) {
@@ -172,11 +183,32 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         String remoteIp = determineRatIp();
         if (remoteIp != null) {
             try {
-                // TODO steady connection, and both directions
                 // TODO only send new commands when old are acknowledged?
 
-                // NOTE for final 0,0 this requests "forward 0" which resets both engines
+                // TODO both directions
+                if (roverConnection != null && roverConnection.isConnected()) {
+                    // NOTE for final 0,0 this requests "forward 0" which resets both engines
 
+                    if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
+                        int value = Math.abs(Math.round(newDirection.forward * 1000));
+                        if (newDirection.forward >= 0) {
+                            roverConnection.sendControl("fore "+value);
+                        } else {
+                            roverConnection.sendControl("back "+value);
+                        }
+                    } else {
+                        int value = Math.abs(Math.round(newDirection.right * 1000));
+                        if (newDirection.right >= 0) {
+                            roverConnection.sendControl("right "+value);
+                        } else {
+                            roverConnection.sendControl("left "+value);
+                        }
+                    }
+                }
+                // TODO else disable joystick ui?
+
+                /* Old style
+                // NOTE for final 0,0 this requests "forward 0" which resets both engines
                 RoverConnection rc = new RoverConnection(remoteIp, this);
 
                 if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
@@ -193,7 +225,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                     } else {
                         rc.makeRequest("left"+value);
                     }
-                }
+                }*/
             } catch (Exception exc) {
                 // TODO do more
                 Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());

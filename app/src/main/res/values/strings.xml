@@ -9,4 +9,6 @@
     <string name="connection_response_toast">Got response</string>
     <string name="connection_failed">Connection failed to</string>
     <string name="connection_successful">Connection ok</string>
+    <string name="cannot_start_wifi_title">WiFi is not enabled</string>
+    <string name="cannot_start_wifi">WiFi is not enabled. Cannot do anything.</string>
 </resources>
