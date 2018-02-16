@@ -32,7 +32,7 @@ import java.net.InetAddress;
 
 public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener, JoystickView.PositionChangeListener {
 
-    private static final String TAG = "MainActivity";
+    private static final String TAG = MainActivity.class.getName();
 
     private ToggleButton toggleConnection;
     private ToggleButton toggleLed1;
@@ -44,8 +44,6 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
 
     private WifiManager wifiManager;
     private RoverConnection roverConnection;
-
-    // TODO app close does not close connection
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +87,15 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         toggleInfraLed = findViewById(R.id.toggleInfra);
         toggleInfraLed.setOnCheckedChangeListener(this);
         toggleInfraLed.setEnabled(false);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (roverConnection != null) {
+            roverConnection.closeControlConnection();
+        }
+
+        super.onDestroy();
     }
 
     @Override
@@ -206,26 +213,6 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                     }
                 }
                 // TODO else disable joystick ui?
-
-                /* Old style
-                // NOTE for final 0,0 this requests "forward 0" which resets both engines
-                RoverConnection rc = new RoverConnection(remoteIp, this);
-
-                if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
-                    int value = Math.abs(Math.round(newDirection.forward * 1000));
-                    if (newDirection.forward >= 0) {
-                        rc.makeRequest("fore"+value);
-                    } else {
-                        rc.makeRequest("back"+value);
-                    }
-                } else {
-                    int value = Math.abs(Math.round(newDirection.right * 1000));
-                    if (newDirection.right >= 0) {
-                        rc.makeRequest("right"+value);
-                    } else {
-                        rc.makeRequest("left"+value);
-                    }
-                }*/
             } catch (Exception exc) {
                 // TODO do more
                 Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());

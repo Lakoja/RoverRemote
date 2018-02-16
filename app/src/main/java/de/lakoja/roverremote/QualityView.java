@@ -29,11 +29,7 @@ import android.util.AttributeSet;
 import android.view.View;
 
 public class QualityView extends View {
-
-    // TODO do log/tag name differently
-    private static final String TAG = "QualityView";
-
-    private float quality = 100; //(float)(Math.random() * 100); // out of 100
+    private float quality = 50;
     private Paint redGreenGradient;
 
     public QualityView(Context context, @Nullable AttributeSet attrs) {
@@ -56,8 +52,6 @@ public class QualityView extends View {
 
         float y = getY(this.quality);
 
-        //Log.i(TAG, "Painting qv with quality "+quality+" and y "+y);
-
         canvas.drawRect(0, y, getWidth(), getHeight(), redGreenGradient);
     }
 
@@ -65,11 +59,11 @@ public class QualityView extends View {
         return quality;
     }
 
-    public void setQuality(float quality) {
+    public void setQuality(float newQuality) {
         float oldY = getY(this.quality);
-        float newY = getY(quality);
+        float newY = getY(newQuality);
 
-        this.quality = quality;
+        this.quality = newQuality;
 
         RectF changeRect = new RectF(0, Math.min(oldY, newY), getWidth(), Math.max(oldY, newY));
         Rect changeRectI = new Rect();
