@@ -28,17 +28,25 @@ import java.net.Socket;
 
 public class RoverConnection implements Runnable {
 
+    public interface StatusListener {
+        void informConnectionStatus(int returnCode, String requested, String message);
+        void informRoverStatus(RoverStatus currentStatus);
+    }
+
     private static final String TAG = RoverConnection.class.getName();
 
     private String host;
-    private MainActivity parent;
     private Socket serverConnection;
     private boolean active = false;
     private String controlRequest;
+    private StatusListener statusListener;
 
-    public RoverConnection(String host, MainActivity parent) {
+    public RoverConnection(String host) {
         this.host = host;
-        this.parent = parent;
+    }
+
+    public void setStatusListener(StatusListener statusListener) {
+        this.statusListener = statusListener;
     }
 
     public boolean isConnected() {
@@ -53,6 +61,7 @@ public class RoverConnection implements Runnable {
     }
 
     public void sendControl(String controlRequest) {
+        // TODO queue this and/or send confirmation
         this.controlRequest = controlRequest;
     }
 
@@ -75,7 +84,9 @@ public class RoverConnection implements Runnable {
             writer.println("control");
             String result = reader.readLine();
 
-            parent.informConnectionResult(200, "control", result);
+            if (statusListener != null) {
+                statusListener.informConnectionStatus(200, "control", result);
+            }
 
             while (active) {
                 if (controlRequest != null) {
@@ -93,7 +104,9 @@ public class RoverConnection implements Runnable {
         } catch (Exception exc) {
             String message = "No control connection " + exc.getMessage() + "/" + exc.getClass();
             Log.e(TAG, message);
-            parent.informConnectionResult(500, "control", message);
+            if (statusListener != null) {
+                statusListener.informConnectionStatus(500, "control", message);
+            }
         }
     }
 }

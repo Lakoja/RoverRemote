@@ -30,7 +30,10 @@ import android.widget.ToggleButton;
 
 import java.net.InetAddress;
 
-public class MainActivity extends AppCompatActivity implements CompoundButton.OnCheckedChangeListener, JoystickView.PositionChangeListener {
+public class MainActivity extends AppCompatActivity
+        implements CompoundButton.OnCheckedChangeListener,
+            JoystickView.PositionChangeListener,
+            RoverConnection.StatusListener {
 
     private static final String TAG = MainActivity.class.getName();
 
@@ -117,7 +120,8 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 String remoteIp = determineRatIp();
                 if (remoteIp != null) {
                     try {
-                        roverConnection = new RoverConnection(remoteIp, this);
+                        roverConnection = new RoverConnection(remoteIp);
+                        roverConnection.setStatusListener(this);
                         roverConnection.openControlConnection();
                     } catch (Exception exc) {
                         // TODO do more
@@ -149,7 +153,7 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
         return hostIpS;
     }
 
-    public void informConnectionResult(int returnCode, String requested, String message) {
+    public void informConnectionStatus(int returnCode, String requested, String message) {
         if (returnCode == 200) {
             if (requested.equals("status")) {
                 final String toastText = getResources().getString(R.string.connection_successful) + " " + message;
@@ -181,6 +185,11 @@ public class MainActivity extends AppCompatActivity implements CompoundButton.On
                 }
             });
         }
+    }
+
+    @Override
+    public void informRoverStatus(RoverStatus currentStatus) {
+
     }
 
     @Override
