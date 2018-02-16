@@ -95,7 +95,7 @@ public class RoverConnection implements Runnable {
                     Log.i(TAG, "Control "+controlRequest+" resulted in "+result);
                     controlRequest = null;
                 } else {
-                    Thread.sleep(2);
+                    try { Thread.sleep(2); } catch (InterruptedException exc) {}
                 }
             }
 

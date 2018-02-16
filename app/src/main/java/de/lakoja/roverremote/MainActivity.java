@@ -30,8 +30,11 @@ import android.widget.ToggleButton;
 
 import java.net.InetAddress;
 
-public class MainActivity extends AppCompatActivity
-        implements CompoundButton.OnCheckedChangeListener,
+public class MainActivity
+        extends AppCompatActivity
+        implements
+            Runnable,
+            CompoundButton.OnCheckedChangeListener,
             JoystickView.PositionChangeListener,
             RoverConnection.StatusListener {
 
@@ -47,6 +50,7 @@ public class MainActivity extends AppCompatActivity
 
     private WifiManager wifiManager;
     private RoverConnection roverConnection;
+    private boolean checkWifiActive = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,6 +79,8 @@ public class MainActivity extends AppCompatActivity
 
             positionControl = findViewById(R.id.joystick);
             positionControl.setPositionChangeListener(this);
+
+            new Thread(this).start();
         }
     }
 
@@ -97,6 +103,8 @@ public class MainActivity extends AppCompatActivity
         if (roverConnection != null) {
             roverConnection.closeControlConnection();
         }
+
+        checkWifiActive = false;
 
         super.onDestroy();
     }
@@ -162,7 +170,6 @@ public class MainActivity extends AppCompatActivity
                     @Override
                     public void run() {
                         Toast.makeText(MainActivity.this, toastText, Toast.LENGTH_LONG).show();
-                        connectionStrength.setQuality(80);
                     }
                 });
             }
@@ -226,6 +233,34 @@ public class MainActivity extends AppCompatActivity
                 // TODO do more
                 Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
             }
+        }
+    }
+
+    @Override
+    public void run() {
+        // Check for wifi quality constantly
+        while (checkWifiActive) {
+            // TODO stop on pause?
+
+            final WifiInfo info = wifiManager.getConnectionInfo();
+
+            // TODO use handler?
+            // TODO only do something on larger change?
+
+            // TODO signal warning if quality worsens
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    int rssi = info.getRssi();
+                    int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
+                    connectionStrength.setQuality(signalLevel);
+                    // TODO also show rssi as value
+                    //Log.i(TAG, "Signal level = "+signalLevel+" from "+rssi);
+                }
+            });
+
+            try { Thread.sleep(1000); } catch (InterruptedException exc) {}
         }
     }
 }
