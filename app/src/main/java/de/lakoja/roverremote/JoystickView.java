@@ -46,7 +46,7 @@ public class JoystickView extends View {
     public JoystickView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
 
-        setBackgroundColor(Color.LTGRAY);
+        setBackgroundColor(Color.rgb(0xa0, 0xa0, 0xa0));
 
         redForeground = new Paint();
         redForeground.setColor(Color.RED);
