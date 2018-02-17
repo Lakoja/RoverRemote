@@ -18,6 +18,7 @@ package de.lakoja.roverremote;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.graphics.Bitmap;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
@@ -25,6 +26,7 @@ import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.widget.CompoundButton;
+import android.widget.ImageView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
@@ -36,7 +38,8 @@ public class MainActivity
             Runnable,
             CompoundButton.OnCheckedChangeListener,
             JoystickView.PositionChangeListener,
-            RoverConnection.StatusListener {
+            RoverConnection.StatusListener,
+            ImageConnection.ImageListener {
 
     private static final String TAG = MainActivity.class.getName();
 
@@ -47,10 +50,12 @@ public class MainActivity
     private QualityView connectionStrength;
     private QualityView connectionThroughput;
     private JoystickView positionControl;
+    private ImageView imageView;
 
     private WifiManager wifiManager;
     private RoverConnection roverConnection;
     private boolean checkWifiActive = true;
+    private ImageConnection imageConnection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,6 +85,9 @@ public class MainActivity
             positionControl = findViewById(R.id.joystick);
             positionControl.setPositionChangeListener(this);
 
+            // TODO scaling options?
+            imageView = findViewById(R.id.imageView);
+
             new Thread(this).start();
         }
     }
@@ -100,9 +108,7 @@ public class MainActivity
 
     @Override
     protected void onDestroy() {
-        if (roverConnection != null) {
-            roverConnection.closeControlConnection();
-        }
+        closeConnections();
 
         checkWifiActive = false;
 
@@ -131,6 +137,10 @@ public class MainActivity
                         roverConnection = new RoverConnection(remoteIp);
                         roverConnection.setStatusListener(this);
                         roverConnection.openControlConnection();
+
+                        imageConnection = new ImageConnection(remoteIp, 81);
+                        imageConnection.setImageListener(this);
+                        imageConnection.openConnection();
                     } catch (Exception exc) {
                         // TODO do more
                         Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
@@ -140,10 +150,20 @@ public class MainActivity
                 }
                 // TODO else?
             } else {
-                roverConnection.closeControlConnection();
-                roverConnection = null;
+                closeConnections();
                 Toast.makeText(this, R.string.disconnection_toast, Toast.LENGTH_LONG).show();
             }
+        }
+    }
+
+    private void closeConnections() {
+        if (roverConnection != null) {
+            roverConnection.closeControlConnection();
+            roverConnection = null;
+        }
+        if (imageConnection != null) {
+            imageConnection.closeConnection();
+            imageConnection = null;
         }
     }
 
@@ -262,5 +282,17 @@ public class MainActivity
 
             try { Thread.sleep(1000); } catch (InterruptedException exc) {}
         }
+    }
+
+    @Override
+    public void imagePresent(final Bitmap bitmap, long timestampMillis) {
+        // TODO use handler? Is there any synchronisation for multiple of these Runnables?
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                imageView.setImageBitmap(bitmap);
+            }
+        });
     }
 }

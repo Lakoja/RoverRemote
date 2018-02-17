@@ -50,7 +50,7 @@ public class JoystickView extends View {
 
         redForeground = new Paint();
         redForeground.setColor(Color.RED);
-        redForeground.setStrokeWidth(3.0f); // TODO width device independent
+        redForeground.setStrokeWidth(4.0f); // TODO width device independent
         redForeground.setStyle(Paint.Style.STROKE);
 
         whiteForeground = new Paint(redForeground);

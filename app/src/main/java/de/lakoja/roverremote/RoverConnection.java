@@ -35,7 +35,7 @@ public class RoverConnection implements Runnable {
 
     private static final String TAG = RoverConnection.class.getName();
 
-    private String host;
+    private final String host;
     private Socket serverConnection;
     private boolean active = false;
     private String controlRequest;
@@ -59,6 +59,9 @@ public class RoverConnection implements Runnable {
             new Thread(this).start();
         }
     }
+
+    // TODO why is a connection loss (Wifi down) not noticed?
+
 
     public void sendControl(String controlRequest) {
         // TODO queue this and/or send confirmation
