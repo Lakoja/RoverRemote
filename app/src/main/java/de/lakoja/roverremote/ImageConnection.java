@@ -188,6 +188,8 @@ public class ImageConnection  implements Runnable {
                         }
                         // TODO did try to use readFully()??
 
+                        writer.println("ok");
+
                         //Log.i(TAG, "Read image bytes "+read);
 
                         Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
@@ -210,12 +212,17 @@ public class ImageConnection  implements Runnable {
                             }
                         }
 
-                        long millis2 = System.currentTimeMillis();
-                        //Log.i(TAG, "Processing image took "+(millis2 - millis));
+                        long passed = System.currentTimeMillis() - millis;
+                        Log.i(TAG, "Processing image took "+passed);
                     }
                 }
 
-                try { Thread.sleep(2); } catch (InterruptedException exc) {} // give control some air
+                long passed = System.currentTimeMillis() - millis;
+                int sleepTime = 2;
+                if (passed < 100) {
+                    sleepTime = (int)(100 - passed);
+                }
+                try { Thread.sleep(sleepTime); } catch (InterruptedException exc) {} // give control some air
             }
 
             if (serverConnection != null) {
