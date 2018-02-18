@@ -43,6 +43,8 @@ public class MainActivity
 
     private static final String TAG = MainActivity.class.getName();
 
+    private static final String DESIRED_WIFI_NAME = "Roversnail";
+
     private ToggleButton toggleConnection;
     private ToggleButton toggleLed1;
     private ToggleButton toggleLed2;
@@ -119,7 +121,7 @@ public class MainActivity
     public void onCheckedChanged(CompoundButton compoundButton, boolean isCheckedNow) {
         if (compoundButton == toggleConnection) {
             WifiInfo wi = wifiManager.getConnectionInfo();
-            if (!wi.getSSID().replaceAll("^\"|\"$", "").equals("Roversnail")) {
+            if (!wifiNameMatches(wi)) {
                 Log.e(TAG, "Wifi has wrong name "+wi.getSSID());
                 Toast.makeText(this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
                 toggleConnection.setChecked(false);
@@ -154,6 +156,11 @@ public class MainActivity
                 Toast.makeText(this, R.string.disconnection_toast, Toast.LENGTH_LONG).show();
             }
         }
+    }
+
+    private boolean wifiNameMatches(WifiInfo info) {
+        // Also removes
+        return info.getSSID().replaceAll("^\"|\"$", "").equals(DESIRED_WIFI_NAME);
     }
 
     private void closeConnections() {
@@ -233,20 +240,27 @@ public class MainActivity
                 if (roverConnection != null && roverConnection.isConnected()) {
                     // NOTE for final 0,0 this requests "forward 0" which resets both engines
 
+                    String command = "";
+
                     if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
                         int value = Math.abs(Math.round(newDirection.forward * 1000));
                         if (newDirection.forward >= 0) {
-                            roverConnection.sendControl("fore "+value);
+                            command = "fore "+value;
                         } else {
-                            roverConnection.sendControl("back "+value);
+                            command = "back "+value;
                         }
                     } else {
                         int value = Math.abs(Math.round(newDirection.right * 1000));
                         if (newDirection.right >= 0) {
-                            roverConnection.sendControl("right "+value);
+                            command = "right "+value;
                         } else {
-                            roverConnection.sendControl("left "+value);
+                            command = "left "+value;
                         }
+                    }
+
+                    if (command.length() > 0) {
+                        Log.i(TAG, "Sending control command "+command);
+                        roverConnection.sendControl(command);
                     }
                 }
                 // TODO else disable joystick ui?
@@ -265,21 +279,38 @@ public class MainActivity
 
             final WifiInfo info = wifiManager.getConnectionInfo();
 
-            // TODO use handler?
-            // TODO only do something on larger change?
+            if (!wifiNameMatches(info)) {
+                // TODO could/should also track with some ID?
+                //closeConnections();
+                if (toggleConnection.isChecked()) {
+                    toggleConnection.setChecked(false);
 
-            // TODO signal warning if quality worsens
-
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    int rssi = info.getRssi();
-                    int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
-                    connectionStrength.setQuality(signalLevel);
-                    // TODO also show rssi as value
-                    //Log.i(TAG, "Signal level = "+signalLevel+" from "+rssi);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Log.e(TAG, "Wifi has wrong name " + info.getSSID());
+                            Toast.makeText(MainActivity.this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
+                        }
+                    });
                 }
-            });
+            } else {
+
+                // TODO use handler?
+                // TODO only do something on larger change?
+
+                // TODO signal warning if quality worsens
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        int rssi = info.getRssi();
+                        int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
+                        connectionStrength.setQuality(signalLevel);
+                        // TODO also show rssi as value
+                        //Log.i(TAG, "Signal level = "+signalLevel+" from "+rssi);
+                    }
+                });
+            }
 
             try { Thread.sleep(1000); } catch (InterruptedException exc) {}
         }
@@ -289,7 +320,7 @@ public class MainActivity
     public void imagePresent(final Bitmap bitmap, long timestampMillis) {
         // TODO use handler? Is there any synchronisation for multiple of these Runnables?
 
-        Log.i(TAG, "Got image "+bitmap.getWidth());
+        //Log.i(TAG, "Got image "+bitmap.getWidth()+"x"+bitmap.getHeight());
 
         runOnUiThread(new Runnable() {
             @Override

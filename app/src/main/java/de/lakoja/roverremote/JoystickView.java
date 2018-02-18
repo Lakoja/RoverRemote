@@ -65,7 +65,7 @@ public class JoystickView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        float radius = getControlRadius();
+        float radius = getControllerRadius();
         float w = getWidth();
         float h = getHeight();
         
@@ -84,7 +84,7 @@ public class JoystickView extends View {
     }
 
     // TODO make static /only depends on size
-    private float getControlRadius() {
+    private float getControllerRadius() {
         int w = getWidth();
         int h = getHeight();
         return Math.max(Math.min(h/6, w/6), 100);
@@ -100,7 +100,7 @@ public class JoystickView extends View {
     public boolean onTouchEvent(MotionEvent event) {
         //super.onTouchEvent(event);
 
-        float radius = getControlRadius();
+        float radius = getControllerRadius();
         float w = getWidth();
         float h = getHeight();
 

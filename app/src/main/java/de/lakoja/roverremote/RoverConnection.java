@@ -25,12 +25,26 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.LinkedList;
+import java.util.Queue;
 
 public class RoverConnection implements Runnable {
+
+    private static final long ENTRY_TOO_OLD = 100;
 
     public interface StatusListener {
         void informConnectionStatus(int returnCode, String requested, String message);
         void informRoverStatus(RoverStatus currentStatus);
+    }
+
+    private class QueueEntry {
+        String controlRequest;
+        long requestQueueMillis;
+
+        public QueueEntry(String request) {
+            controlRequest = request;
+            requestQueueMillis = System.currentTimeMillis();
+        }
     }
 
     private static final String TAG = RoverConnection.class.getName();
@@ -38,8 +52,8 @@ public class RoverConnection implements Runnable {
     private final String host;
     private Socket serverConnection;
     private boolean active = false;
-    private String controlRequest;
     private StatusListener statusListener;
+    private Queue<QueueEntry> commandQueue = new LinkedList<>();
 
     public RoverConnection(String host) {
         this.host = host;
@@ -64,8 +78,9 @@ public class RoverConnection implements Runnable {
 
 
     public void sendControl(String controlRequest) {
-        // TODO queue this and/or send confirmation
-        this.controlRequest = controlRequest;
+        // TODO send confirmation to caller?
+
+        commandQueue.add(new QueueEntry(controlRequest));
     }
 
     public void closeControlConnection() {
@@ -78,11 +93,9 @@ public class RoverConnection implements Runnable {
             InetAddress serverAddr = InetAddress.getByName(host);
             serverConnection = new Socket(serverAddr, 80);
 
-            PrintWriter writer = new PrintWriter(
-                    new BufferedWriter(new OutputStreamWriter(serverConnection.getOutputStream())), true);
+            PrintWriter writer = new PrintWriter(new OutputStreamWriter(serverConnection.getOutputStream()), true);
 
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(serverConnection.getInputStream()));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(serverConnection.getInputStream()));
 
             writer.println("control");
             String result = reader.readLine();
@@ -92,11 +105,16 @@ public class RoverConnection implements Runnable {
             }
 
             while (active) {
-                if (controlRequest != null) {
-                    writer.println(controlRequest);
-                    result = reader.readLine();
-                    Log.i(TAG, "Control "+controlRequest+" resulted in "+result);
-                    controlRequest = null;
+                if (!commandQueue.isEmpty()) {
+                    QueueEntry command = commandQueue.remove();
+                    if (entryAlive(command)) {
+                        writer.println(command.controlRequest);
+                        result = reader.readLine();
+                        // TODO also read everything there is?
+                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result);
+                    } else {
+                        Log.w(TAG, "Discarding command "+command.controlRequest);
+                    }
                 } else {
                     try { Thread.sleep(2); } catch (InterruptedException exc) {}
                 }
@@ -111,5 +129,16 @@ public class RoverConnection implements Runnable {
                 statusListener.informConnectionStatus(500, "control", message);
             }
         }
+    }
+
+    private boolean entryAlive(QueueEntry entry) {
+        if (entry.controlRequest.endsWith("0")) {
+            // Transmit every stop regardless of age
+            return true;
+        } else if (System.currentTimeMillis() - entry.requestQueueMillis < ENTRY_TOO_OLD) {
+            return true;
+        }
+
+        return false;
     }
 }

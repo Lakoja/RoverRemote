@@ -136,6 +136,8 @@ public class ImageConnection  implements Runnable {
                     currentLine = readLine(stream);
                 }
 
+                long millis = System.currentTimeMillis();
+
                 currentLine = readLine(stream);
                 int imageSize = 0;
                 boolean ignoreContent = false;
@@ -165,7 +167,7 @@ public class ImageConnection  implements Runnable {
                     currentLine = readLine(stream);
                 }
 
-                Log.i(TAG, "Found headers in order; size: "+imageSize);
+                //Log.i(TAG, "Found headers in order; size: "+imageSize);
 
                 // TODO even more active check (or handle errors differently)?
                 if (active) {
@@ -186,7 +188,7 @@ public class ImageConnection  implements Runnable {
                         }
                         // TODO did try to use readFully()??
 
-                        Log.i(TAG, "Read image "+read);
+                        //Log.i(TAG, "Read image bytes "+read);
 
                         Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
 
@@ -207,10 +209,13 @@ public class ImageConnection  implements Runnable {
                                 imageListener.imagePresent(bmp, 0);
                             }
                         }
+
+                        long millis2 = System.currentTimeMillis();
+                        //Log.i(TAG, "Processing image took "+(millis2 - millis));
                     }
                 }
 
-                Thread.yield();
+                try { Thread.sleep(2); } catch (InterruptedException exc) {} // give control some air
             }
 
             if (serverConnection != null) {
