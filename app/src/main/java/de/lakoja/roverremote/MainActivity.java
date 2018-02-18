@@ -181,6 +181,7 @@ public class MainActivity
         return hostIpS;
     }
 
+    // TODO this is specified by two interfaces; that is rather odd
     public void informConnectionStatus(int returnCode, String requested, String message) {
         if (returnCode == 200) {
             if (requested.equals("status")) {
@@ -287,6 +288,8 @@ public class MainActivity
     @Override
     public void imagePresent(final Bitmap bitmap, long timestampMillis) {
         // TODO use handler? Is there any synchronisation for multiple of these Runnables?
+
+        Log.i(TAG, "Got image "+bitmap.getWidth());
 
         runOnUiThread(new Runnable() {
             @Override
