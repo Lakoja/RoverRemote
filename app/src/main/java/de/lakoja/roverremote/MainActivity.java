@@ -271,6 +271,16 @@ public class MainActivity
         }
     }
 
+    /* NO works
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        Vibrator v = (Vibrator) getApplicationContext().getSystemService(Context.VIBRATOR_SERVICE);
+        v.vibrate(1000);
+        Log.i(TAG, "Vibrating");
+    }*/
+
     @Override
     public void run() {
         // Check for wifi quality constantly

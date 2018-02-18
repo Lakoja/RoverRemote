@@ -23,25 +23,29 @@ import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.os.Vibrator;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
 public class JoystickView extends View {
 
+    private static final String TAG = JoystickView.class.getName();
+    private static final int OUTSIDE_VIBRATE = 15; // TODO could depend on dp?
+
     public interface PositionChangeListener {
-        public void onPositionChange(Direction newDirection);
+        void onPositionChange(Direction newDirection);
     }
 
     private Paint redForeground;
     private Paint whiteForeground;
+    private Paint whiteForegroundHair;
     private PointF lastTouch = new PointF(-1, -1);
     private boolean validTouch = false;
     private long lastReportTime = -100;
-
     private PositionChangeListener changeListener = null;
+    private Vibrator vibrator;
 
     public JoystickView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -50,11 +54,17 @@ public class JoystickView extends View {
 
         redForeground = new Paint();
         redForeground.setColor(Color.RED);
-        redForeground.setStrokeWidth(4.0f); // TODO width device independent
+        redForeground.setStrokeWidth(5.0f); // TODO width device independent
         redForeground.setStyle(Paint.Style.STROKE);
 
         whiteForeground = new Paint(redForeground);
         whiteForeground.setColor(Color.WHITE);
+
+        whiteForegroundHair = new Paint(whiteForeground);
+        whiteForegroundHair.setStrokeWidth(1.0f);
+
+        // TODO could depend on a setting
+        vibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
     }
 
     public void setPositionChangeListener(PositionChangeListener pl) {
@@ -74,16 +84,17 @@ public class JoystickView extends View {
             lastTouch.y = h/2;
         }
 
-        //Log.i(getClass().getName(), "draw at "+lastTouch);
+        canvas.drawCircle(w/2, h/2, getOuterRadius(), whiteForeground);
+        canvas.drawLine(0, h/2, w, h/2, whiteForegroundHair);
+        canvas.drawLine(w/2, 0, w/2, h, whiteForegroundHair);
 
         canvas.drawCircle(lastTouch.x, lastTouch.y, radius, redForeground);
+        canvas.drawCircle(lastTouch.x, lastTouch.y, 5, redForeground);
         canvas.drawLine(lastTouch.x - radius, lastTouch.y, lastTouch.x + radius, lastTouch.y, redForeground);
         canvas.drawLine(lastTouch.x, lastTouch.y - radius, lastTouch.x, lastTouch.y + radius, redForeground);
-
-        canvas.drawCircle(w/2, h/2, getOuterRadius(), whiteForeground);
     }
 
-    // TODO make static /only depends on size
+    // TODO make static /only depends on size; also add a "centerPoint" to use in methods
     private float getControllerRadius() {
         int w = getWidth();
         int h = getHeight();
@@ -114,10 +125,12 @@ public class JoystickView extends View {
         }
 
         float outerRadius = getOuterRadius();
-        if (!isUp && getDistanceToCenter(thisTouch) > outerRadius) {
-            validTouch = false;
+        if (!isUp && validTouch && getDistanceToCenter(thisTouch) > outerRadius) {
+            if (vibrator != null) {
+                vibrator.vibrate(20);
+            }
 
-            // TODO also vibrate on this?
+            thisTouch = calculatePointOnCircle(thisTouch, outerRadius);
         }
         
         if (validTouch || isUp) {
@@ -136,15 +149,22 @@ public class JoystickView extends View {
                 changeRect.roundOut(changeRectI);
                 invalidate(changeRectI);
 
-                // TODO limit to circle properly (point on circle if outside)
-                lastTouch = thisTouch;
+                if (!isUp && vibrator != null) {
+                    if (wasOutIsNowInX(lastTouch, thisTouch)) {
+                        vibrator.vibrate(200);
+                    }
+                    if (wasOutIsNowInY(lastTouch, thisTouch)) {
+                        vibrator.vibrate(300);
+                    }
+                    // TODO snap on 0?
+                }
 
-                //Log.i(getClass().getName(), "joy at " + lastTouch);
+                lastTouch = thisTouch;
 
                 if (changeListener != null) {
                     long now = System.currentTimeMillis();
                     if (isUp || isDown || now - lastReportTime >= 100) { // TODO maybe shorter or consider lastReportDistance?
-                        Log.i(getClass().getName(), "reporting at " + lastTouch);
+                        //Log.i(TAG, "reporting at " + lastTouch);
 
                         // TODO consider out of region (also see above)
                         float r = (lastTouch.x - w/2) / outerRadius;
@@ -166,6 +186,24 @@ public class JoystickView extends View {
         return true;
     }
 
+    private PointF calculatePointOnCircle(PointF thisTouch, float outerRadius) {
+        float w = getWidth();
+        float h = getHeight();
+
+        float touchToCenterX = thisTouch.x - w / 2;
+        float touchToCenterY = thisTouch.y - h / 2;
+        float x = w / 2 + (touchToCenterX < 0 ? -1 : 1) * outerRadius;
+        if (touchToCenterY != 0) {
+            float v = touchToCenterX / touchToCenterY;
+            x = (float) Math.sqrt((outerRadius * outerRadius) / (1 + 1 / (v * v)));
+        }
+        float y = (float)Math.sqrt((outerRadius * outerRadius) - (x * x));
+
+        //Log.w(TAG, "Calculated "+x+","+y+" for bogus "+thisTouch.x+","+thisTouch.y+ " center "+(w/2)+","+(h/2)+" outer radius "+outerRadius);
+
+        return new PointF(w/2 + (touchToCenterX < 0 ? -1 : 1) * x, h/2 + (touchToCenterY < 0 ? -1 : 1) * y);
+    }
+
     private float getDistanceToLast(PointF touchPoint) {
         if (lastTouch.x == -1) {
             return 0;
@@ -179,6 +217,16 @@ public class JoystickView extends View {
         float centerY = getHeight() / 2;
 
         return (float)Math.sqrt((centerX - touchPoint.x)*(centerX - touchPoint.x) + (centerY - touchPoint.y)*(centerY - touchPoint.y));
+    }
+
+    private boolean wasOutIsNowInX(PointF lastTouch, PointF thisTouch) {
+        float centerX = getWidth() / 2;
+        return (Math.abs(lastTouch.x - centerX) >= OUTSIDE_VIBRATE && Math.abs(thisTouch.x - centerX) < OUTSIDE_VIBRATE);
+    }
+
+    private boolean wasOutIsNowInY(PointF lastTouch, PointF thisTouch) {
+        float centerY = getHeight() / 2;
+        return (Math.abs(lastTouch.y - centerY) >= OUTSIDE_VIBRATE && Math.abs(thisTouch.y - centerY) < OUTSIDE_VIBRATE);
     }
 
     @Override
