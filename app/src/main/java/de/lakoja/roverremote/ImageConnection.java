@@ -27,11 +27,11 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
 
 public class ImageConnection  implements Runnable {
-
     public interface ImageListener {
         void informConnectionStatus(int returnCode, String requested, String message);
         void imagePresent(Bitmap bitmap, long timestampMillis);
@@ -44,10 +44,12 @@ public class ImageConnection  implements Runnable {
     private boolean active = false;
     private Socket serverConnection;
     private ImageListener imageListener;
+    private long lastImageTime;
 
     public ImageConnection(String host, int port) {
         this.host = host;
         this.port = port;
+        lastImageTime = System.currentTimeMillis();
     }
 
     public void setImageListener(ImageListener imageListener) {
@@ -58,7 +60,11 @@ public class ImageConnection  implements Runnable {
     public void run() {
         try {
             InetAddress serverAddr = InetAddress.getByName(host);
-            serverConnection = new Socket(serverAddr, port);
+            serverConnection = new Socket();
+            serverConnection.setReceiveBufferSize(4000); // TODO has this any influence? (on responsiveness?)
+            serverConnection.connect(new InetSocketAddress(serverAddr, port));
+
+            // TODO could use setSoTimeout (InterruptedException and continue normally after)
 
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(serverConnection.getOutputStream()), true);
 
@@ -184,7 +190,10 @@ public class ImageConnection  implements Runnable {
                         byte[] imageData = new byte[imageSize];
                         int read = 0;
                         while (read < imageSize) {
+                            long m1 = System.currentTimeMillis();
                             read += stream.read(imageData, read, imageSize - read);
+                            long m2 = System.currentTimeMillis();
+                            logLongWait(m2-m1, "image");
                         }
                         // TODO did try to use readFully()??
 
@@ -212,8 +221,11 @@ public class ImageConnection  implements Runnable {
                             }
                         }
 
-                        long passed = System.currentTimeMillis() - millis;
-                        Log.i(TAG, "Processing image took "+passed);
+
+                        long now = System.currentTimeMillis();
+                        long passed = now - millis;
+                        Log.i(TAG, "Processing image took "+passed+ "(last image "+(now - lastImageTime)+")");
+                        lastImageTime = now;
                     }
                 }
 
@@ -245,22 +257,43 @@ public class ImageConnection  implements Runnable {
      */
     private String readLine(InputStream stream) throws IOException {
         StringBuilder stringBuffer = new StringBuilder(100);
-        char c;
-        while ((c = (char)stream.read()) != '\n') {
+        long m1 = System.currentTimeMillis();
+        char c = (char)stream.read();
+        long m2 = System.currentTimeMillis();
+        logLongWait(m2-m1, "char");
+        while (c != '\n') {
             if (c != '\r') {
                 stringBuffer.append(c);
+
+                if (stringBuffer.length() % 100 == 0) {
+                    if (!serverConnection.isConnected()) {
+                        Log.e(TAG, "Emergency stopping readLine. Not connected anymore.");
+                        return "";
+                    }
+                }
 
                 if (stringBuffer.length() > 100000) {
                     Log.wtf(TAG, "Emergency stopping readLine. Over 100000 chars until \\n");
                     return "";
                 }
             }
+
+            long m3 = System.currentTimeMillis();
+            c = (char)stream.read();
+            long m4 = System.currentTimeMillis();
+            logLongWait(m4-m3, "char");
         }
 
         String s = stringBuffer.toString();
         //Log.i(TAG, "Passing line "+s);
 
         return stringBuffer.toString();
+    }
+
+    private void logLongWait(long waitMillis, String pos) {
+        if (waitMillis > 50) {
+            Log.w(TAG, "Long wait for "+pos+" "+waitMillis);
+        }
     }
 
     public void openConnection() {
@@ -291,6 +324,4 @@ public class ImageConnection  implements Runnable {
             imageListener.informConnectionStatus(500, "", "Image connection closed");
         }
     }
-
-
 }
