@@ -18,13 +18,17 @@ package de.lakoja.roverremote;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -46,9 +50,9 @@ public class MainActivity
     private static final String DESIRED_WIFI_NAME = "Roversnail";
 
     private ToggleButton toggleConnection;
-    private ToggleButton toggleLed1;
     private ToggleButton toggleLed2;
     private ToggleButton toggleInfraLed;
+    private Button btnWifi;
     private QualityView connectionStrength;
     private QualityView connectionThroughput;
     private JoystickView positionControl;
@@ -97,15 +101,22 @@ public class MainActivity
     private void connectButtons() {
         toggleConnection = findViewById(R.id.toggleConnection);
         toggleConnection.setOnCheckedChangeListener(this);
-        toggleLed1 = findViewById(R.id.toggleLed1);
-        toggleLed1.setOnCheckedChangeListener(this);
-        toggleLed1.setEnabled(false);
+        //toggleLed1 = findViewById(R.id.toggleLed1);
+        //toggleLed1.setOnCheckedChangeListener(this);
+        //toggleLed1.setEnabled(false);
         toggleLed2 = findViewById(R.id.toggleLed2);
         toggleLed2.setOnCheckedChangeListener(this);
         toggleLed2.setEnabled(false);
         toggleInfraLed = findViewById(R.id.toggleInfra);
         toggleInfraLed.setOnCheckedChangeListener(this);
         toggleInfraLed.setEnabled(false);
+        btnWifi = findViewById(R.id.btnWifi);
+        btnWifi.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            }
+        });
     }
 
     @Override
@@ -128,7 +139,7 @@ public class MainActivity
                 return;
             }
 
-            toggleLed1.setEnabled(isCheckedNow);
+            //toggleLed1.setEnabled(isCheckedNow);
             toggleLed2.setEnabled(isCheckedNow);
             toggleInfraLed.setEnabled(isCheckedNow);
 
@@ -292,12 +303,16 @@ public class MainActivity
             if (!wifiNameMatches(info)) {
                 // TODO could/should also track with some ID?
                 //closeConnections();
-                if (toggleConnection.isChecked()) {
-                    toggleConnection.setChecked(false);
-
+                if (toggleConnection.isChecked() || connectionStrength.getQuality() != 0) {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
+                            if (toggleConnection.isChecked()) {
+                                toggleConnection.setChecked(false);
+                            }
+                            if (connectionStrength.getQuality() != 0) {
+                                connectionStrength.setQuality(0);
+                            }
                             Log.e(TAG, "Wifi has wrong name " + info.getSSID());
                             Toast.makeText(MainActivity.this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
                         }
