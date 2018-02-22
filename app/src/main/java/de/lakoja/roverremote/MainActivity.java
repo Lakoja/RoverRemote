@@ -188,6 +188,11 @@ public class MainActivity
     private String determineRatIp() {
         WifiInfo wi = wifiManager.getConnectionInfo();
         int i = wi.getIpAddress();
+
+        if (i == 0) {
+            return null; // TODO is this normal?
+        }
+
         InetAddress ip = null;
         byte[] rawAddress = new byte[]{(byte) (i), (byte) (i >> 8), (byte) (i >> 16), (byte) (i >> 24)};
 
