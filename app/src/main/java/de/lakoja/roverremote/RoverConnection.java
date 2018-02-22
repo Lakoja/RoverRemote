@@ -108,10 +108,13 @@ public class RoverConnection implements Runnable {
                 if (!commandQueue.isEmpty()) {
                     QueueEntry command = commandQueue.remove();
                     if (entryAlive(command)) {
+                        long m1 = System.currentTimeMillis();
                         writer.println(command.controlRequest);
+                        long m2 = System.currentTimeMillis();
                         result = reader.readLine();
+                        long m3 = System.currentTimeMillis();
                         // TODO also read everything there is?
-                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result);
+                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w"+(m2-m1)+ " r"+(m3-m2));
                     } else {
                         Log.w(TAG, "Discarding command "+command.controlRequest);
                     }
