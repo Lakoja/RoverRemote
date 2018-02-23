@@ -20,6 +20,8 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
@@ -34,6 +36,12 @@ import android.widget.ImageView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 
 public class MainActivity
@@ -62,6 +70,9 @@ public class MainActivity
     private RoverConnection roverConnection;
     private boolean checkWifiActive = true;
     private ImageConnection imageConnection;
+    private byte[] lastImageData = null;
+    private long lastImageMillis = 0;
+    private int lastImageBackColor;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,6 +105,39 @@ public class MainActivity
             // TODO scaling options?
             imageView = findViewById(R.id.imageView);
 
+            if (savedInstanceState != null) {
+                // TODO does not work in onSaveInstanceState
+            }
+
+            try {
+                File lastImageFile =  new File(getApplicationContext().getFilesDir(), "lastImage.jpg");
+                if (lastImageFile.exists()) {
+                    Log.w(TAG, "Found last image file "+lastImageFile+"/"+lastImageFile.length());
+
+                    FileInputStream fis = getApplicationContext().openFileInput("lastImage.jpg");
+                    DataInputStream input = new DataInputStream(fis);
+
+                    byte[] lastImageDataFromFile = new byte[(int)lastImageFile.length()];
+                    input.readFully(lastImageDataFromFile);
+
+                    input.close();
+
+                    Bitmap bmp = BitmapFactory.decodeByteArray(lastImageDataFromFile, 0, lastImageDataFromFile.length);
+                    if (bmp != null) {
+                        setImageBackColor(Color.RED); // TODO set different otherwise
+                        imageView.setImageBitmap(bmp);
+                        // TODO give this a red border or something to denote it is old?
+                    } else {
+                        Log.e(TAG, "Found corrupt image in saved file; byte size "+lastImageDataFromFile.length);
+                    }
+                }
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            // TODO better error output?
+
             new Thread(this).start();
         }
     }
@@ -117,6 +161,33 @@ public class MainActivity
                 startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
             }
         });
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        // NOTE only called for system events
+
+        super.onSaveInstanceState(outState);
+
+        // TODO does not work
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+
+        if (lastImageData != null) {
+            Log.w(TAG, "Saving last image as file"); // TODO remove
+            try {
+                FileOutputStream fos = getApplicationContext().openFileOutput("lastImage.jpg", 0);
+                fos.write(lastImageData);
+                fos.close();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     @Override
@@ -342,21 +413,43 @@ public class MainActivity
                 });
             }
 
+            // TODO checkWifiActive is the wrong name here
+            if (lastImageMillis > 0 && System.currentTimeMillis() - lastImageMillis > 1500) {
+                if (lastImageBackColor != Color.YELLOW) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            setImageBackColor(Color.YELLOW);
+                        }
+                    });
+                }
+            }
+
             try { Thread.sleep(1000); } catch (InterruptedException exc) {}
         }
     }
 
     @Override
-    public void imagePresent(final Bitmap bitmap, long timestampMillis) {
+    public void imagePresent(final Bitmap bitmap, final long timestampMillis, final byte[] rawData) {
         // TODO use handler? Is there any synchronisation for multiple of these Runnables?
-
-        //Log.i(TAG, "Got image "+bitmap.getWidth()+"x"+bitmap.getHeight());
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                setImageBackColor(Color.GREEN);
                 imageView.setImageBitmap(bitmap);
+                MainActivity.this.lastImageData = rawData;
+                MainActivity.this.lastImageMillis = timestampMillis;
             }
         });
+    }
+
+    // TODO stop image display/request once paused?
+
+    // TODO this should only set a border (if image does not fit view correctly this background border will be big)
+    private void setImageBackColor(int color) {
+        if (lastImageBackColor != color) {
+            lastImageBackColor = color;
+            imageView.setBackgroundColor(lastImageBackColor); // TODO  what about repaint performance?
+        }
     }
 }

@@ -34,7 +34,7 @@ import java.net.SocketException;
 public class ImageConnection  implements Runnable {
     public interface ImageListener {
         void informConnectionStatus(int returnCode, String requested, String message);
-        void imagePresent(Bitmap bitmap, long timestampMillis);
+        void imagePresent(Bitmap bitmap, long timestampMillis, byte[] rawData);
     }
 
     private static final String TAG = ImageConnection.class.getName();
@@ -142,7 +142,7 @@ public class ImageConnection  implements Runnable {
                     currentLine = readLine(stream);
                 }
 
-                long millis = System.currentTimeMillis();
+                long imageStartTime = System.currentTimeMillis();
 
                 currentLine = readLine(stream);
                 int imageSize = 0;
@@ -217,19 +217,19 @@ public class ImageConnection  implements Runnable {
                         } else {
                             if (imageListener != null) {
                                 // TODO timestamp?
-                                imageListener.imagePresent(bmp, 0);
+                                imageListener.imagePresent(bmp, imageStartTime, imageData);
                             }
                         }
 
 
                         long now = System.currentTimeMillis();
-                        long passed = now - millis;
+                        long passed = now - imageStartTime;
                         Log.i(TAG, "Processing image took "+passed+ "(last image "+(now - lastImageTime)+")");
                         lastImageTime = now;
                     }
                 }
 
-                long passed = System.currentTimeMillis() - millis;
+                long passed = System.currentTimeMillis() - imageStartTime;
                 int sleepTime = 2;
                 if (passed < 100) {
                     sleepTime = (int)(100 - passed);
