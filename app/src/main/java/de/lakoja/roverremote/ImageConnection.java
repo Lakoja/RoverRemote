@@ -62,7 +62,15 @@ public class ImageConnection  implements Runnable {
             InetAddress serverAddr = InetAddress.getByName(host);
             serverConnection = new Socket();
             serverConnection.setReceiveBufferSize(4000); // TODO has this any influence? (on responsiveness?)
-            serverConnection.connect(new InetSocketAddress(serverAddr, port));
+            try {
+                serverConnection.connect(new InetSocketAddress(serverAddr, port));
+            } catch (SocketException excS) {
+                if (excS.getMessage().contains("ETIMEDOUT")) {
+                    // Try once again
+                    try { Thread.sleep(500); } catch (InterruptedException exc) {}
+                    serverConnection.connect(new InetSocketAddress(serverAddr, port));
+                }
+            }
 
             // TODO could use setSoTimeout (InterruptedException and continue normally after)
 
@@ -173,8 +181,6 @@ public class ImageConnection  implements Runnable {
                     currentLine = readLine(stream);
                 }
 
-                //Log.i(TAG, "Found headers in order; size: "+imageSize);
-
                 // TODO even more active check (or handle errors differently)?
                 if (active) {
                     if (ignoreContent) {
@@ -188,23 +194,33 @@ public class ImageConnection  implements Runnable {
                         }
 
                         byte[] imageData = new byte[imageSize];
+                        long m1 = System.currentTimeMillis();
+
+                        stream.readFully(imageData);
+
+                        long m2 = System.currentTimeMillis();
+                        logLongWait(m2-m1, "image");
+                        /*
                         int read = 0;
                         while (read < imageSize) {
                             long m1 = System.currentTimeMillis();
                             read += stream.read(imageData, read, imageSize - read);
                             long m2 = System.currentTimeMillis();
                             logLongWait(m2-m1, "image");
-                        }
-                        // TODO did try to use readFully()??
+                        }*/
 
-                        writer.println("ok");
-
-                        //Log.i(TAG, "Read image bytes "+read);
+                        // TODO remove?
+                        // writer.println("ok");
 
                         Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
 
                         if (bmp == null) {
                             Log.e(TAG, "Found illegal image");
+
+                            // TODO must be shown more prominently
+                            if (imageListener != null) {
+                                imageListener.informConnectionStatus(500, "image", "illegal image found");
+                            }
 
                             if (imageSize >= 5) {
                                 Log.e(TAG, "first 5 bytes " + String.format("%x", imageData[0]) + String.format("%x", imageData[1]) + String.format("%x", imageData[2]) + String.format("%x", imageData[3]) + String.format("%x", imageData[4]));
@@ -216,7 +232,6 @@ public class ImageConnection  implements Runnable {
                             return;
                         } else {
                             if (imageListener != null) {
-                                // TODO timestamp?
                                 imageListener.imagePresent(bmp, imageStartTime, imageData);
                             }
                         }
@@ -243,12 +258,13 @@ public class ImageConnection  implements Runnable {
                 serverConnection.close();
             }
 
-        } catch (SocketException exc2) {
-            String message = "No image. Connection closed. "+ exc2.getMessage();
-            Log.w(TAG, message);
         } catch (Exception exc) {
             String message = "No image connection " + exc.getMessage() + "/" + exc.getClass();
             Log.e(TAG, message);
+
+            if (imageListener != null) {
+                imageListener.informConnectionStatus(500, "image", message);
+            }
         }
     }
 
@@ -257,10 +273,10 @@ public class ImageConnection  implements Runnable {
      */
     private String readLine(InputStream stream) throws IOException {
         StringBuilder stringBuffer = new StringBuilder(100);
-        long m1 = System.currentTimeMillis();
+
+        // TODO only read when available() (not sending is normal for the server)
+
         char c = (char)stream.read();
-        long m2 = System.currentTimeMillis();
-        logLongWait(m2-m1, "char");
         while (c != '\n') {
             if (c != '\r') {
                 stringBuffer.append(c);
@@ -278,20 +294,14 @@ public class ImageConnection  implements Runnable {
                 }
             }
 
-            long m3 = System.currentTimeMillis();
             c = (char)stream.read();
-            long m4 = System.currentTimeMillis();
-            logLongWait(m4-m3, "char");
         }
-
-        String s = stringBuffer.toString();
-        //Log.i(TAG, "Passing line "+s);
 
         return stringBuffer.toString();
     }
 
     private void logLongWait(long waitMillis, String pos) {
-        if (waitMillis > 50) {
+        if (waitMillis > 100) {
             Log.w(TAG, "Long wait for "+pos+" "+waitMillis);
         }
     }
