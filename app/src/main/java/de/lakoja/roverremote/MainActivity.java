@@ -289,17 +289,20 @@ public class MainActivity
             //final String toastText = getResources().getString(R.string.connection_failed) + " " + returnCode + " " + message;
 
             final String errorText = getResources().getString(R.string.connection_failed) + " " + returnCode + " " + message;
+            Log.e(TAG, errorText);
 
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Log.e(TAG, errorText);
-
-                    if (toggleConnection.isChecked()) {
-                        toggleConnection.setChecked(false);
+            // TODO allow missing image connection better
+            if (requested == null || !requested.equals("image")) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(MainActivity.this, errorText, Toast.LENGTH_LONG).show();
+                        if (toggleConnection.isChecked()) {
+                            toggleConnection.setChecked(false);
+                        }
                     }
-                }
-            });
+                });
+            }
         }
     }
 
