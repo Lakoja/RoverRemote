@@ -42,7 +42,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.InetAddress;
 
 public class MainActivity
         extends AppCompatActivity
@@ -54,8 +53,8 @@ public class MainActivity
             ImageConnection.ImageListener {
 
     private static final String TAG = MainActivity.class.getName();
-
     private static final String DESIRED_WIFI_NAME = "Roversnail";
+    private static final int COLOR_ORANGE = 0xff7f00;
 
     private ToggleButton toggleConnection;
     private ToggleButton toggleLed2;
@@ -68,7 +67,7 @@ public class MainActivity
 
     private WifiManager wifiManager;
     private RoverConnection roverConnection;
-    private boolean checkWifiActive = true;
+    private boolean checkSystemLoop = true;
     private ImageConnection imageConnection;
     private byte[] lastImageData = null;
     private long lastImageMillis = 0;
@@ -194,7 +193,7 @@ public class MainActivity
     protected void onDestroy() {
         closeConnections();
 
-        checkWifiActive = false;
+        checkSystemLoop = false;
 
         super.onDestroy();
     }
@@ -266,15 +265,11 @@ public class MainActivity
             return null; // TODO is this normal?
         }
 
-        InetAddress ip = null;
         byte[] rawAddress = new byte[]{(byte) (i), (byte) (i >> 8), (byte) (i >> 16), (byte) (i >> 24)};
 
         // TODO IPv6?
         rawAddress[3] = 1;
-        //InetAddress hostIp = InetAddress.getByAddress(rawAddress);
-        String hostIpS = (rawAddress[0] & 0xff) + "." + (rawAddress[1] & 0xff) + "." + (rawAddress[2] & 0xff) + "." + (rawAddress[3] & 0xff);
-
-        return hostIpS;
+        return (rawAddress[0] & 0xff) + "." + (rawAddress[1] & 0xff) + "." + (rawAddress[2] & 0xff) + "." + (rawAddress[3] & 0xff);
     }
 
     // TODO this is specified by two interfaces; that is rather odd
@@ -298,9 +293,6 @@ public class MainActivity
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    //Toast.makeText(MainActivity.this, toastText, Toast.LENGTH_LONG).show();
-                    //connectionStrength.setQuality(50);
-
                     Log.e(TAG, errorText);
 
                     if (toggleConnection.isChecked()) {
@@ -325,11 +317,14 @@ public class MainActivity
             try {
                 // TODO only send new commands when old are acknowledged?
 
-                // TODO both directions
                 if (roverConnection != null && roverConnection.isConnected()) {
-                    // NOTE for final 0,0 this requests "forward 0" which resets both engines
+                    String command = "move ";
+                    command += (500 + Math.round(newDirection.forward * 500));
+                    command += " ";
+                    command += (500 + Math.round(newDirection.right * 500));
 
-                    String command = "";
+                    /* Only one direction at each time
+                    // NOTE for final 0,0 this requests "forward 0" which resets both engines
 
                     if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
                         int value = Math.abs(Math.round(newDirection.forward * 1000));
@@ -345,7 +340,7 @@ public class MainActivity
                         } else {
                             command = "left "+value;
                         }
-                    }
+                    }*/
 
                     if (command.length() > 0) {
                         Log.i(TAG, "Sending control command "+command);
@@ -360,20 +355,10 @@ public class MainActivity
         }
     }
 
-    /* NO works
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        Vibrator v = (Vibrator) getApplicationContext().getSystemService(Context.VIBRATOR_SERVICE);
-        v.vibrate(1000);
-        Log.i(TAG, "Vibrating");
-    }*/
-
     @Override
     public void run() {
-        // Check for wifi quality constantly
-        while (checkWifiActive) {
+        while (checkSystemLoop) {
+            // Check for wifi quality constantly
             // TODO stop on pause?
 
             final WifiInfo info = wifiManager.getConnectionInfo();
@@ -410,18 +395,24 @@ public class MainActivity
                         int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
                         connectionStrength.setQuality(signalLevel);
                         // TODO also show rssi as value
-                        //Log.i(TAG, "Signal level = "+signalLevel+" from "+rssi);
                     }
                 });
             }
 
-            // TODO checkWifiActive is the wrong name here
-            if (lastImageMillis > 0 && System.currentTimeMillis() - lastImageMillis > 1500) {
-                if (lastImageBackColor != Color.YELLOW) {
+            if (lastImageMillis > 0) {
+                int desiredColor = lastImageBackColor;
+
+                if (System.currentTimeMillis() - lastImageMillis > 5000) {
+                    desiredColor = COLOR_ORANGE;
+                } else if (System.currentTimeMillis() - lastImageMillis > 1500) {
+                    desiredColor = Color.YELLOW;
+                }
+                if (lastImageBackColor != desiredColor) {
+                    final int colorToSet = desiredColor;
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            setImageBackColor(Color.YELLOW);
+                            setImageBackColor(colorToSet);
                         }
                     });
                 }
