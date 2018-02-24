@@ -25,12 +25,14 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.LinkedList;
 import java.util.Queue;
 
 public class RoverConnection implements Runnable {
 
     private static final long ENTRY_TOO_OLD = 100;
+    private static final long ENTRY_STATUS_TOO_OLD = 800;
 
     public interface StatusListener {
         void informConnectionStatus(int returnCode, String requested, String message);
@@ -44,6 +46,10 @@ public class RoverConnection implements Runnable {
         public QueueEntry(String request) {
             controlRequest = request;
             requestQueueMillis = System.currentTimeMillis();
+        }
+
+        public long age() {
+            return System.currentTimeMillis() - requestQueueMillis;
         }
     }
 
@@ -91,7 +97,15 @@ public class RoverConnection implements Runnable {
     public void run() {
         try {
             InetAddress serverAddr = InetAddress.getByName(host);
-            serverConnection = new Socket(serverAddr, 80);
+            try {
+                serverConnection = new Socket(serverAddr, 80);
+            } catch (SocketException excS) {
+                if (excS.getMessage().contains("ETIMEDOUT")) {
+                    // Try once again
+                    try { Thread.sleep(500); } catch (InterruptedException exc) {}
+                    serverConnection = new Socket(serverAddr, 80);
+                }
+            }
 
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(serverConnection.getOutputStream()), true);
 
@@ -114,12 +128,12 @@ public class RoverConnection implements Runnable {
                         result = reader.readLine();
                         long m3 = System.currentTimeMillis();
                         // TODO also read everything there is?
-                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w"+(m2-m1)+ " r"+(m3-m2));
+                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w" + (m2 - m1) + " r" + (m3 - m2));
                     } else {
-                        Log.w(TAG, "Discarding command "+command.controlRequest);
+                        Log.w(TAG, "Discarding command " + command.controlRequest + " age " + command.age());
                     }
                 } else {
-                    try { Thread.sleep(2); } catch (InterruptedException exc) {}
+                    try { Thread.sleep(2); } catch (InterruptedException exc) { }
                 }
             }
 
@@ -135,10 +149,12 @@ public class RoverConnection implements Runnable {
     }
 
     private boolean entryAlive(QueueEntry entry) {
-        if (entry.controlRequest.endsWith("0")) {
+        if (entry.controlRequest.endsWith(" 0")) {
             // Transmit every stop regardless of age
             return true;
-        } else if (System.currentTimeMillis() - entry.requestQueueMillis < ENTRY_TOO_OLD) {
+        } else if (entry.controlRequest.startsWith("status") && entry.age() < ENTRY_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.age() < ENTRY_TOO_OLD) {
             return true;
         }
 

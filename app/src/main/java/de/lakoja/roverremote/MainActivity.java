@@ -222,6 +222,8 @@ public class MainActivity
                         roverConnection.setStatusListener(this);
                         roverConnection.openControlConnection();
 
+                        roverConnection.sendControl("status");
+
                         imageConnection = new ImageConnection(remoteIp, 81);
                         imageConnection.setImageListener(this);
                         imageConnection.openConnection();
