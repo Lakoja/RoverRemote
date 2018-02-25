@@ -426,7 +426,7 @@ public class MainActivity
     }
 
     @Override
-    public void imagePresent(final Bitmap bitmap, final long timestampMillis, final byte[] rawData) {
+    public void imagePresent(final Bitmap bitmap, final long timestampMillis, final byte[] rawData, final float lastKbps) {
         // TODO use handler? Is there any synchronisation for multiple of these Runnables?
         runOnUiThread(new Runnable() {
             @Override
@@ -435,6 +435,12 @@ public class MainActivity
                 imageView.setImageBitmap(bitmap);
                 MainActivity.this.lastImageData = rawData;
                 MainActivity.this.lastImageMillis = timestampMillis;
+
+                // 1MB/s is maximum shown throughput
+                // Formula found experimentally: uses a moderatly logarithmic curve mapping 0..1000 to 0..100
+                //   See https://rechneronline.de/funktionsgraphen/
+                float qualityValue = 49 * (float)Math.log((lastKbps + 150) / 150);
+                connectionThroughput.setQuality(qualityValue);
             }
         });
     }

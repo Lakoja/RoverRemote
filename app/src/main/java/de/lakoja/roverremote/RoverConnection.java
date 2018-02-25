@@ -85,7 +85,6 @@ public class RoverConnection implements Runnable {
 
     public void sendControl(String controlRequest) {
         // TODO send confirmation to caller?
-
         commandQueue.add(new QueueEntry(controlRequest));
     }
 

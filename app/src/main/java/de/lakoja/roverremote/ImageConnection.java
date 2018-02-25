@@ -30,11 +30,13 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.LinkedList;
+import java.util.Queue;
 
 public class ImageConnection  implements Runnable {
     public interface ImageListener {
         void informConnectionStatus(int returnCode, String requested, String message);
-        void imagePresent(Bitmap bitmap, long timestampMillis, byte[] rawData);
+        void imagePresent(Bitmap bitmap, long timestampMillis, byte[] rawData, float lastKbps);
     }
 
     private static final String TAG = ImageConnection.class.getName();
@@ -45,6 +47,8 @@ public class ImageConnection  implements Runnable {
     private Socket serverConnection;
     private ImageListener imageListener;
     private long lastImageTime;
+    private Queue<Float> lastTransfersKbps = new LinkedList<>();
+    private float lastTransferKbpsMean = 0;
 
     public ImageConnection(String host, int port) {
         this.host = host;
@@ -199,7 +203,24 @@ public class ImageConnection  implements Runnable {
                         stream.readFully(imageData);
 
                         long m2 = System.currentTimeMillis();
-                        logLongWait(m2-m1, "image");
+                        //logLongWait(m2-m1, "image");
+
+                        float kbps = (imageSize / 1024.0f) / ((m2-m1) / 1000.0f);
+
+                        // TODO this dequeue and enqueue with mean is rather awkward
+                        if (lastTransfersKbps.size() == 0) {
+                            lastTransferKbpsMean = kbps;
+                        } else if (lastTransfersKbps.size() > 2) {
+                            // dequeue oldest one
+                            float oldestKbps = lastTransfersKbps.remove();
+                            lastTransferKbpsMean = ((lastTransferKbpsMean * (lastTransfersKbps.size() + 1)) - oldestKbps) / lastTransfersKbps.size();
+                        }
+
+                        lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
+                        lastTransfersKbps.add(kbps);
+
+                        Log.i(TAG, "Having kbps "+lastTransferKbpsMean);
+
                         /*
                         int read = 0;
                         while (read < imageSize) {
@@ -232,7 +253,7 @@ public class ImageConnection  implements Runnable {
                             return;
                         } else {
                             if (imageListener != null) {
-                                imageListener.imagePresent(bmp, imageStartTime, imageData);
+                                imageListener.imagePresent(bmp, imageStartTime, imageData, lastTransferKbpsMean);
                             }
                         }
 
@@ -259,11 +280,15 @@ public class ImageConnection  implements Runnable {
             }
 
         } catch (Exception exc) {
-            String message = "No image connection " + exc.getMessage() + "/" + exc.getClass();
-            Log.e(TAG, message);
+            if (!active && exc instanceof SocketException) {
+                // ignore connection close
+            } else {
+                String message = "No image connection " + exc.getMessage() + "/" + exc.getClass();
+                Log.e(TAG, message);
 
-            if (imageListener != null) {
-                imageListener.informConnectionStatus(500, "image", message);
+                if (imageListener != null) {
+                    imageListener.informConnectionStatus(500, "image", message);
+                }
             }
         }
     }

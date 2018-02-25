@@ -59,6 +59,9 @@ public class QualityView extends View {
         return quality;
     }
 
+    /**
+     * @param newQuality the quality out of a range 0..100
+     */
     public void setQuality(float newQuality) {
         float oldY = getY(this.quality);
         float newY = getY(newQuality);
