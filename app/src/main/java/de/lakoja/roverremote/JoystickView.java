@@ -29,7 +29,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-public class JoystickView extends View {
+public class JoystickView extends View implements Runnable {
 
     private static final String TAG = JoystickView.class.getName();
     private static final int OUTSIDE_VIBRATE = 15; // TODO could depend on dp?
@@ -47,6 +47,8 @@ public class JoystickView extends View {
     private float controllerRadius = 1;
     private float outerRadius = 2;
     private long lastReportTime = -100;
+    private Direction lastReportDirection = null;
+    private boolean monitorFingerDown = false;
     private PositionChangeListener changeListener = null;
     private Vibrator vibrator;
 
@@ -158,26 +160,45 @@ public class JoystickView extends View {
                 if (changeListener != null) {
                     long now = System.currentTimeMillis();
                     if (isUp || isDown || now - lastReportTime >= 100) { // TODO maybe shorter or consider lastReportDistance?
-                        //Log.i(TAG, "reporting at " + lastTouch);
-
-                        // TODO consider out of region (also see above)
                         float r = (lastTouch.x - centerPoint.x) / outerRadius;
                         float f = -1 * (lastTouch.y - centerPoint.y) / outerRadius;
 
-                        changeListener.onPositionChange(new Direction(f, r));
+                        lastReportDirection = new Direction(f, r);
+                        changeListener.onPositionChange(lastReportDirection);
                         lastReportTime = now;
                     }
                 }
             }
         }
 
+        if (isDown) {
+            monitorFingerDown = true;
+
+            new Thread(this).start();
+        }
+
         if (isUp) {
             validTouch = false;
+            monitorFingerDown = false; // stops Thread
+            // NOTE this also works for onPause (isUp is sent)
 
             super.performClick();
         }
 
         return true;
+    }
+
+
+    @Override
+    public void run() {
+        while (monitorFingerDown) {
+            long now = System.currentTimeMillis();
+            if (now - lastReportTime >= 400 && lastReportDirection != null) {
+                changeListener.onPositionChange(lastReportDirection);
+                lastReportTime = now;
+            }
+            try { Thread.sleep(50); } catch (InterruptedException exc) {}
+        }
     }
 
     private PointF calculatePointOnCircle(PointF thisTouch, float outerRadius) {
