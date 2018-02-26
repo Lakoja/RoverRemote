@@ -72,6 +72,7 @@ public class MainActivity
     private byte[] lastImageData = null;
     private long lastImageMillis = 0;
     private int lastImageBackColor;
+    private long lastStatusCheck = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -307,8 +308,15 @@ public class MainActivity
     }
 
     @Override
-    public void informRoverStatus(RoverStatus currentStatus) {
-
+    public void informRoverStatus(final RoverStatus currentStatus) {
+        if (currentStatus.getVoltage() > 0) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    MainActivity.this.positionControl.showVolt(currentStatus.getVoltage());
+                }
+            });
+        }
     }
 
     @Override
@@ -346,7 +354,7 @@ public class MainActivity
                     }*/
 
                     if (command.length() > 0) {
-                        Log.i(TAG, "Sending control command "+command);
+                        //Log.i(TAG, "Sending control command "+command);
                         roverConnection.sendControl(command);
                     }
                 }
@@ -378,6 +386,9 @@ public class MainActivity
                             }
                             if (connectionStrength.getQuality() != 0) {
                                 connectionStrength.setQuality(0);
+                            }
+                            if (connectionThroughput.getQuality() != 0) {
+                                connectionThroughput.setQuality(0);
                             }
                             Log.e(TAG, "Wifi has wrong name " + info.getSSID());
                             Toast.makeText(MainActivity.this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
@@ -418,6 +429,15 @@ public class MainActivity
                             setImageBackColor(colorToSet);
                         }
                     });
+                }
+            }
+
+            if (roverConnection != null && roverConnection.isConnected()) {
+                long now = System.currentTimeMillis();
+                if (now - lastStatusCheck > 1900) {
+                    roverConnection.sendControl("status");
+                    // TODO the actual result may be delayed / request discarded?
+                    lastStatusCheck = now;
                 }
             }
 

@@ -219,7 +219,7 @@ public class ImageConnection  implements Runnable {
                         lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
                         lastTransfersKbps.add(kbps);
 
-                        Log.i(TAG, "Having kbps "+lastTransferKbpsMean);
+                        //Log.i(TAG, "Having kbps "+lastTransferKbpsMean);
 
                         /*
                         int read = 0;
@@ -260,7 +260,9 @@ public class ImageConnection  implements Runnable {
 
                         long now = System.currentTimeMillis();
                         long passed = now - imageStartTime;
-                        Log.i(TAG, "Processing image took "+passed+ "(last image "+(now - lastImageTime)+")");
+                        if (passed > 500) {
+                            Log.i(TAG, "Processing image took " + passed + "(last image " + (now - lastImageTime) + ")");
+                        }
                         lastImageTime = now;
                     }
                 }

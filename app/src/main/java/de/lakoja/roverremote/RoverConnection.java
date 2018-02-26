@@ -28,6 +28,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.StringTokenizer;
 
 public class RoverConnection implements Runnable {
 
@@ -128,6 +129,28 @@ public class RoverConnection implements Runnable {
                         long m3 = System.currentTimeMillis();
                         // TODO also read everything there is?
                         Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w" + (m2 - m1) + " r" + (m3 - m2));
+
+                        // TODO less or more explicit "status"
+                        if (command.controlRequest.equals("status")) {
+                            if (statusListener != null) {
+                                // TODO support more
+                                StringTokenizer tokenizer = new StringTokenizer(result, " ");
+                                if (tokenizer.countTokens() >= 2) {
+                                    tokenizer.nextToken(); // TODO check for VOLT (or STATUS)
+                                    String voltageRaw = tokenizer.nextToken();
+                                    try {
+                                        float voltage = Float.parseFloat(voltageRaw);
+                                        RoverStatus status = new RoverStatus(false, false, false, voltage);
+
+                                        statusListener.informRoverStatus(status);
+                                    } catch (NumberFormatException exc) {
+                                        Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
+                                    }
+                                } else {
+                                    Log.e(TAG, "False rover status reply; too few tokens: "+result);
+                                }
+                            }
+                        }
                     } else {
                         Log.w(TAG, "Discarding command " + command.controlRequest + " age " + command.age());
                     }

@@ -23,11 +23,15 @@ import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.os.Vibrator;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+
+import java.text.DecimalFormat;
 
 public class JoystickView extends View implements Runnable {
 
@@ -40,6 +44,7 @@ public class JoystickView extends View implements Runnable {
 
     private Paint redForeground;
     private Paint whiteForeground;
+    private Paint whiteForegroundText;
     private Paint whiteForegroundHair;
     private PointF lastTouch = new PointF(-1, -1);
     private boolean validTouch = false;
@@ -51,6 +56,8 @@ public class JoystickView extends View implements Runnable {
     private boolean monitorFingerDown = false;
     private PositionChangeListener changeListener = null;
     private Vibrator vibrator;
+    private float currentVoltage = 0;
+    private DecimalFormat voltageFormatter;
 
     public JoystickView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -65,15 +72,30 @@ public class JoystickView extends View implements Runnable {
         whiteForeground = new Paint(redForeground);
         whiteForeground.setColor(Color.WHITE);
 
+        whiteForegroundText = new Paint(whiteForeground);
+        int scaledSize = getResources().getDimensionPixelSize(R.dimen.infoFontSize);
+        whiteForegroundText.setTextSize(scaledSize);
+        whiteForegroundText.setTypeface(Typeface.DEFAULT);
+
         whiteForegroundHair = new Paint(whiteForeground);
         whiteForegroundHair.setStrokeWidth(1.0f);
 
         // TODO could depend on a setting
         vibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+
+        voltageFormatter = new DecimalFormat("0.00V");
     }
 
     public void setPositionChangeListener(PositionChangeListener pl) {
         changeListener = pl;
+    }
+
+    public void showVolt(float voltage) {
+        currentVoltage = voltage;
+        float w = getWidth();
+        float h = getHeight();
+        // TODO consider real text size/position
+        invalidate(new RectF(w-w/10, h-h/10, w/10, h/10));
     }
 
     @Override
@@ -98,14 +120,25 @@ public class JoystickView extends View implements Runnable {
             lastTouch = centerPoint;
         }
 
+        float width = getWidth();
+        float height = getHeight();
+
         canvas.drawCircle(centerPoint.x, centerPoint.y, outerRadius, whiteForeground);
-        canvas.drawLine(0, centerPoint.y, getWidth(), centerPoint.y, whiteForegroundHair);
-        canvas.drawLine(centerPoint.x, 0, centerPoint.x, getHeight(), whiteForegroundHair);
+        canvas.drawLine(0, centerPoint.y, width, centerPoint.y, whiteForegroundHair);
+        canvas.drawLine(centerPoint.x, 0, centerPoint.x, height, whiteForegroundHair);
 
         canvas.drawCircle(lastTouch.x, lastTouch.y, radius, redForeground);
         canvas.drawCircle(lastTouch.x, lastTouch.y, 8, redForeground);
         canvas.drawLine(lastTouch.x - radius, lastTouch.y, lastTouch.x + radius, lastTouch.y, redForeground);
         canvas.drawLine(lastTouch.x, lastTouch.y - radius, lastTouch.x, lastTouch.y + radius, redForeground);
+
+        if (currentVoltage > 0) {
+            String text = voltageFormatter.format(currentVoltage);
+            Log.i(TAG, "Showing voltage "+text);
+            Rect textBounds = new Rect();
+            whiteForegroundText.getTextBounds(text, 0, text.length(), textBounds);
+            canvas.drawText(text, width - textBounds.width() - 10, 5 + textBounds.height(), whiteForegroundText);
+        }
     }
 
     @Override
@@ -141,9 +174,7 @@ public class JoystickView extends View implements Runnable {
                 RectF newRect = new RectF(thisTouch.x - radius, thisTouch.y - radius, thisTouch.x + radius, thisTouch.y + radius);
                 changeRect.union(newRect);
 
-                Rect changeRectI = new Rect();
-                changeRect.roundOut(changeRectI);
-                invalidate(changeRectI);
+                invalidate(changeRect);
 
                 if (!isUp && vibrator != null) {
                     if (wasOutIsNowInX(lastTouch, thisTouch)) {
@@ -188,6 +219,11 @@ public class JoystickView extends View implements Runnable {
         return true;
     }
 
+    private void invalidate(RectF preciseRect) {
+        Rect changeRectI = new Rect();
+        preciseRect.roundOut(changeRectI);
+        invalidate(changeRectI);
+    }
 
     @Override
     public void run() {
@@ -214,6 +250,7 @@ public class JoystickView extends View implements Runnable {
         //Log.w(TAG, "Calculated "+x+","+y+" for bogus "+thisTouch.x+","+thisTouch.y+ " center "+(w/2)+","+(h/2)+" outer radius "+outerRadius);
 
         return new PointF(centerPoint.x + (touchToCenterX < 0 ? -1 : 1) * x, centerPoint.y + (touchToCenterY < 0 ? -1 : 1) * y);
+        //Log.i(TAG, "Calculated point on circle "+pointOnCircle);
     }
 
     private float getDistanceToLast(PointF touchPoint) {
