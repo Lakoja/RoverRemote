@@ -22,6 +22,8 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
@@ -54,7 +56,7 @@ public class MainActivity
 
     private static final String TAG = MainActivity.class.getName();
     private static final String DESIRED_WIFI_NAME = "Roversnail";
-    private static final int COLOR_ORANGE = 0xff7f00;
+    private static final int COLOR_ORANGE = 0xffff7f00;
 
     private ToggleButton toggleConnection;
     private ToggleButton toggleLed2;
@@ -177,7 +179,6 @@ public class MainActivity
         super.onStop();
 
         if (lastImageData != null) {
-            Log.w(TAG, "Saving last image as file"); // TODO remove
             try {
                 FileOutputStream fos = getApplicationContext().openFileOutput("lastImage.jpg", 0);
                 fos.write(lastImageData);
@@ -218,6 +219,8 @@ public class MainActivity
                 String remoteIp = determineRatIp();
                 if (remoteIp != null) {
                     try {
+                        Log.i(TAG, "Opening connections to "+remoteIp);
+
                         roverConnection = new RoverConnection(remoteIp);
                         roverConnection.setStatusListener(this);
                         roverConnection.openControlConnection();
@@ -233,8 +236,11 @@ public class MainActivity
                         String toastText = getResources().getString(R.string.connection_failed) + " " + remoteIp;
                         Toast.makeText(this, toastText, Toast.LENGTH_LONG).show();
                     }
+                } else {
+                    Log.e(TAG, "Cannot determine remote ip");
+                    toggleConnection.setChecked(false);
                 }
-                // TODO else?
+
             } else {
                 closeConnections();
                 Toast.makeText(this, R.string.disconnection_toast, Toast.LENGTH_LONG).show();
@@ -263,6 +269,13 @@ public class MainActivity
         int i = wi.getIpAddress();
 
         if (i == 0) {
+            // TODO improve
+            ConnectivityManager cm = (ConnectivityManager)getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                NetworkInfo ni = cm.getActiveNetworkInfo();
+                Log.w(TAG, "No ip. Network status is "+ni.isConnected());
+            }
+
             return null; // TODO is this normal?
         }
 

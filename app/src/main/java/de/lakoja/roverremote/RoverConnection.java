@@ -104,6 +104,8 @@ public class RoverConnection implements Runnable {
                     // Try once again
                     try { Thread.sleep(500); } catch (InterruptedException exc) {}
                     serverConnection = new Socket(serverAddr, 80);
+                } else {
+                    throw excS;
                 }
             }
 

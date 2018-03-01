@@ -69,25 +69,59 @@ public class ImageConnection  implements Runnable {
             try {
                 serverConnection.connect(new InetSocketAddress(serverAddr, port));
             } catch (SocketException excS) {
-                if (excS.getMessage().contains("ETIMEDOUT")) {
+                if (excS.getMessage().contains("ETIMEDOUT") || excS.getMessage().contains("ECONNRESET")) {
+                    Log.w(TAG, "Try image connection once again");
                     // Try once again
                     try { Thread.sleep(500); } catch (InterruptedException exc) {}
                     serverConnection.connect(new InetSocketAddress(serverAddr, port));
+                } else {
+                    Log.w(TAG, "First image connection attempt failed");
+                    throw excS;
                 }
             }
 
             // TODO could use setSoTimeout (InterruptedException and continue normally after)
 
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(serverConnection.getOutputStream()), true);
+            InputStream input = serverConnection.getInputStream();
+
+            // TODO remove / probably not necessary
+            long staleDataSkipped = 0;
+            while (input.available() > 0) {
+                int av = input.available();
+                staleDataSkipped += input.skip(av);
+            }
+
+            if (staleDataSkipped > 0) {
+                Log.e(TAG, "Skipped stale data: "+staleDataSkipped);
+            }
+
+            DataInputStream stream = new DataInputStream(new BufferedInputStream(input));
 
             writer.println("GET / HTTP/1.1");
 
-            DataInputStream stream = new DataInputStream(new BufferedInputStream(serverConnection.getInputStream()));
 
             // Note also this reader buffers; so one cannot start to read image data out of the underlying input stream after reading lines.
             //InputStreamReader reader = new InputStreamReader(stream);
 
             String currentLine = readLine(stream);
+
+            // TODO remove / probably not necessary
+            int garbageDataSkipped = 0;
+            while (!currentLine.startsWith("HTTP/1.1 ")) {
+                garbageDataSkipped += currentLine.length();
+
+                if (garbageDataSkipped > 100000) {
+                    Log.wtf(TAG, "Cannot skip any more garbage data");
+                    break;
+                }
+
+                currentLine = readLine(stream);
+            }
+
+            if (garbageDataSkipped > 0) {
+                Log.e(TAG, "Skipped garbage data: "+garbageDataSkipped);
+            }
 
             int code = 0;
             if (currentLine.startsWith("HTTP/1.1 ")) {
@@ -102,7 +136,7 @@ public class ImageConnection  implements Runnable {
                     return;
                 }
             } else {
-                Log.e(TAG, "Did not get HTTP/1.1 response: "+currentLine);
+                Log.e(TAG, "Did not get HTTP/1.1 response: "+(int)currentLine.charAt(0)+" "+(int)currentLine.charAt(1)+" "+currentLine);
                 closeConnection(true);
                 return;
             }
@@ -279,6 +313,7 @@ public class ImageConnection  implements Runnable {
                 active = false;
                 Log.w(TAG, "Disconnecting");
                 serverConnection.close();
+                serverConnection = null;
             }
 
         } catch (Exception exc) {
@@ -346,16 +381,6 @@ public class ImageConnection  implements Runnable {
 
     public void closeConnection(boolean internalError) {
         active = false;
-
-        // TODO do this here or in run?
-        if (serverConnection != null) {
-            try {
-                serverConnection.close();
-            } catch (IOException e) {
-                // Only cleanup anyway
-            }
-            serverConnection = null;
-        }
 
         if (internalError && imageListener != null) {
             imageListener.informConnectionStatus(500, "", "Image connection closed");

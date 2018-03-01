@@ -58,6 +58,7 @@ public class JoystickView extends View implements Runnable {
     private Vibrator vibrator;
     private float currentVoltage = 0;
     private DecimalFormat voltageFormatter;
+    private Rect textBounds;
 
     public JoystickView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -84,6 +85,7 @@ public class JoystickView extends View implements Runnable {
         vibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
 
         voltageFormatter = new DecimalFormat("0.00V");
+        textBounds = new Rect();
     }
 
     public void setPositionChangeListener(PositionChangeListener pl) {
@@ -134,8 +136,7 @@ public class JoystickView extends View implements Runnable {
 
         if (currentVoltage > 0) {
             String text = voltageFormatter.format(currentVoltage);
-            Log.i(TAG, "Showing voltage "+text);
-            Rect textBounds = new Rect();
+
             whiteForegroundText.getTextBounds(text, 0, text.length(), textBounds);
             canvas.drawText(text, width - textBounds.width() - 10, 5 + textBounds.height(), whiteForegroundText);
         }
