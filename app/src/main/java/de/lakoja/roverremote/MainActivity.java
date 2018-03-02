@@ -287,7 +287,7 @@ public class MainActivity
     }
 
     // TODO this is specified by two interfaces; that is rather odd
-    public void informConnectionStatus(int returnCode, String requested, String message) {
+    public void informConnectionStatus(int returnCode, final String requested, String message) {
         if (returnCode == 200) {
             if (requested.equals("status")) {
                 final String toastText = getResources().getString(R.string.connection_successful) + " " + message;
@@ -306,12 +306,12 @@ public class MainActivity
             Log.e(TAG, errorText);
 
             // TODO allow missing image connection better
-            if (requested == null || !requested.equals("image")) {
+            if (requested == null) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         Toast.makeText(MainActivity.this, errorText, Toast.LENGTH_LONG).show();
-                        if (toggleConnection.isChecked()) {
+                        if (!requested.equals("image") && toggleConnection.isChecked()) {
                             toggleConnection.setChecked(false);
                         }
                     }

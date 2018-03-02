@@ -49,6 +49,7 @@ public class ImageConnection  implements Runnable {
     private long lastImageTime;
     private Queue<Float> lastTransfersKbps = new LinkedList<>();
     private float lastTransferKbpsMean = 0;
+    private long lastTransferOutTime = 0;
 
     public ImageConnection(String host, int port) {
         this.host = host;
@@ -79,6 +80,8 @@ public class ImageConnection  implements Runnable {
                     throw excS;
                 }
             }
+
+            Log.i(TAG, "Established image connection");
 
             // TODO could use setSoTimeout (InterruptedException and continue normally after)
 
@@ -146,6 +149,8 @@ public class ImageConnection  implements Runnable {
                 closeConnection(true);
                 return;
             }
+
+            Log.i(TAG, "Got HTTP response");
 
             currentLine = readLine(stream);
 
@@ -294,19 +299,16 @@ public class ImageConnection  implements Runnable {
 
                         long now = System.currentTimeMillis();
                         long passed = now - imageStartTime;
-                        if (passed > 500) {
+                        if (passed > 500 || now - lastTransferOutTime > 4000) {
                             Log.i(TAG, "Processing image took " + passed + "(last image " + (now - lastImageTime) + ")");
+                            lastTransferOutTime = now;
                         }
                         lastImageTime = now;
                     }
                 }
 
-                long passed = System.currentTimeMillis() - imageStartTime;
-                int sleepTime = 2;
-                if (passed < 100) {
-                    sleepTime = (int)(100 - passed);
-                }
-                try { Thread.sleep(sleepTime); } catch (InterruptedException exc) {} // give control some air
+                // This sleeps (longer) in waiting for input above - if the servers wishes so or the connection is bad
+                try { Thread.sleep(1); } catch (InterruptedException exc) {}
             }
 
             if (serverConnection != null) {
