@@ -111,36 +111,7 @@ public class MainActivity
                 // TODO does not work in onSaveInstanceState
             }
 
-            try {
-                File lastImageFile =  new File(getApplicationContext().getFilesDir(), "lastImage.jpg");
-                if (lastImageFile.exists()) {
-                    Log.w(TAG, "Found last image file "+lastImageFile+"/"+lastImageFile.length());
-
-                    FileInputStream fis = getApplicationContext().openFileInput("lastImage.jpg");
-                    DataInputStream input = new DataInputStream(fis);
-
-                    byte[] lastImageDataFromFile = new byte[(int)lastImageFile.length()];
-                    input.readFully(lastImageDataFromFile);
-
-                    input.close();
-
-                    Bitmap bmp = BitmapFactory.decodeByteArray(lastImageDataFromFile, 0, lastImageDataFromFile.length);
-                    if (bmp != null) {
-                        setImageBackColor(Color.RED); // TODO set different otherwise
-                        imageView.setImageBitmap(bmp);
-                        // TODO give this a red border or something to denote it is old?
-                    } else {
-                        Log.e(TAG, "Found corrupt image in saved file; byte size "+lastImageDataFromFile.length);
-                    }
-                }
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            // TODO better error output?
-
-            new Thread(this).start();
+            restoreLastImage();
         }
     }
 
@@ -165,6 +136,51 @@ public class MainActivity
         });
     }
 
+    private void restoreLastImage() {
+        try {
+            File lastImageFile = new File(getApplicationContext().getFilesDir(), "lastImage.jpg");
+            if (lastImageFile.exists()) {
+                FileInputStream fis = getApplicationContext().openFileInput("lastImage.jpg");
+                DataInputStream input = new DataInputStream(fis);
+
+                byte[] lastImageDataFromFile = new byte[(int) lastImageFile.length()];
+                input.readFully(lastImageDataFromFile);
+
+                input.close();
+
+                Bitmap bmp = BitmapFactory.decodeByteArray(lastImageDataFromFile, 0, lastImageDataFromFile.length);
+                if (bmp != null) {
+                    setImageBackColor(Color.RED); // TODO set different otherwise
+                    imageView.setImageBitmap(bmp);
+                } else {
+                    Log.e(TAG, "Found corrupt image in saved file; byte size " + lastImageDataFromFile.length);
+                }
+            }
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        // TODO better error output?
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        checkSystemLoop = true;
+        new Thread(this).start();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+
+        checkSystemLoop = false;
+
+        saveLastImage();
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         // NOTE only called for system events
@@ -174,10 +190,7 @@ public class MainActivity
         // TODO does not work
     }
 
-    @Override
-    protected void onStop() {
-        super.onStop();
-
+    private void saveLastImage() {
         if (lastImageData != null) {
             try {
                 FileOutputStream fos = getApplicationContext().openFileOutput("lastImage.jpg", 0);
@@ -195,7 +208,7 @@ public class MainActivity
     protected void onDestroy() {
         closeConnections();
 
-        checkSystemLoop = false;
+        // TODO also use a timer for connection close
 
         super.onDestroy();
     }
@@ -334,48 +347,20 @@ public class MainActivity
 
     @Override
     public void onPositionChange(Direction newDirection) {
-        Log.i(TAG, "Got position change "+newDirection);
+        try {
+            // TODO only send new commands when old are acknowledged?
 
-        String remoteIp = determineRatIp();
-        if (remoteIp != null) {
-            try {
-                // TODO only send new commands when old are acknowledged?
+            if (roverConnection != null && roverConnection.isConnected()) {
+                String command = "move ";
+                command += (500 + Math.round(newDirection.forward * 500));
+                command += " ";
+                command += (500 + Math.round(newDirection.right * 500));
 
-                if (roverConnection != null && roverConnection.isConnected()) {
-                    String command = "move ";
-                    command += (500 + Math.round(newDirection.forward * 500));
-                    command += " ";
-                    command += (500 + Math.round(newDirection.right * 500));
-
-                    /* Only one direction at each time
-                    // NOTE for final 0,0 this requests "forward 0" which resets both engines
-
-                    if (Math.abs(newDirection.forward) >= Math.abs(newDirection.right)) {
-                        int value = Math.abs(Math.round(newDirection.forward * 1000));
-                        if (newDirection.forward >= 0) {
-                            command = "fore "+value;
-                        } else {
-                            command = "back "+value;
-                        }
-                    } else {
-                        int value = Math.abs(Math.round(newDirection.right * 1000));
-                        if (newDirection.right >= 0) {
-                            command = "right "+value;
-                        } else {
-                            command = "left "+value;
-                        }
-                    }*/
-
-                    if (command.length() > 0) {
-                        //Log.i(TAG, "Sending control command "+command);
-                        roverConnection.sendControl(command);
-                    }
-                }
-                // TODO else disable joystick ui?
-            } catch (Exception exc) {
-                // TODO do more
-                Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
+                roverConnection.sendControl(command);
             }
+        } catch (Exception exc) {
+            // TODO do more
+            Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
         }
     }
 
