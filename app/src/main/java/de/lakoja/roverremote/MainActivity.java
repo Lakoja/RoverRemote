@@ -352,9 +352,9 @@ public class MainActivity
 
             if (roverConnection != null && roverConnection.isConnected()) {
                 String command = "move ";
-                command += (500 + Math.round(newDirection.forward * 500));
+                command += (500 + Math.round(bend(newDirection.forward) * 500));
                 command += " ";
-                command += (500 + Math.round(newDirection.right * 500));
+                command += (500 + Math.round(bend(newDirection.right) * 500));
 
                 roverConnection.sendControl(command);
             }
@@ -362,6 +362,14 @@ public class MainActivity
             // TODO do more
             Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
         }
+    }
+
+    /**
+     * Slightly curve the value: lower values raise slower; maps -1..1 to -1..1
+     * Found/tested on https://rechneronline.de/funktionsgraphen/
+     */
+    private float bend(float x) {
+        return Math.signum(x) * (float)Math.pow(Math.abs(x), 1.5f);
     }
 
     @Override
