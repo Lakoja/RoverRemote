@@ -115,8 +115,6 @@ public class JoystickView extends View implements Runnable {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-
-        float radius = controllerRadius;
         
         if (lastTouch.x == -1) {
             lastTouch = centerPoint;
@@ -125,14 +123,30 @@ public class JoystickView extends View implements Runnable {
         float width = getWidth();
         float height = getHeight();
 
-        canvas.drawCircle(centerPoint.x, centerPoint.y, outerRadius, whiteForeground);
-        canvas.drawLine(0, centerPoint.y, width, centerPoint.y, whiteForegroundHair);
-        canvas.drawLine(centerPoint.x, 0, centerPoint.x, height, whiteForegroundHair);
+        // TODO limit to circle more elegantly
+        float hairX1 = 0;
+        float hairX2 = width;
+        float hairY1 = 0;
+        float hairY2 = height;
 
-        canvas.drawCircle(lastTouch.x, lastTouch.y, radius, redForeground);
+        if (width/2 > outerRadius) {
+            float offset = width/2 - outerRadius;
+            hairX1 = offset;
+            hairX2 = width - offset;
+        } else if (height/2 > outerRadius) {
+            float offset = height/2 - outerRadius;
+            hairY1 = offset;
+            hairY2 = height - offset;
+        }
+
+        canvas.drawCircle(centerPoint.x, centerPoint.y, outerRadius, whiteForeground);
+        canvas.drawLine(hairX1, centerPoint.y, hairX2, centerPoint.y, whiteForegroundHair);
+        canvas.drawLine(centerPoint.x, hairY1, centerPoint.x, hairY2, whiteForegroundHair);
+
+        canvas.drawCircle(lastTouch.x, lastTouch.y, controllerRadius, redForeground);
         canvas.drawCircle(lastTouch.x, lastTouch.y, 8, redForeground);
-        canvas.drawLine(lastTouch.x - radius, lastTouch.y, lastTouch.x + radius, lastTouch.y, redForeground);
-        canvas.drawLine(lastTouch.x, lastTouch.y - radius, lastTouch.x, lastTouch.y + radius, redForeground);
+        canvas.drawLine(lastTouch.x - controllerRadius, lastTouch.y, lastTouch.x + controllerRadius, lastTouch.y, redForeground);
+        canvas.drawLine(lastTouch.x, lastTouch.y - controllerRadius, lastTouch.x, lastTouch.y + controllerRadius, redForeground);
 
         if (currentVoltage > 0) {
             String text = voltageFormatter.format(currentVoltage);
