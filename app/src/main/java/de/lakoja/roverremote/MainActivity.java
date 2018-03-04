@@ -75,6 +75,9 @@ public class MainActivity
     private long lastImageMillis = 0;
     private int lastImageBackColor;
     private long lastStatusCheck = 0;
+    private boolean wifiNameMatches = false;
+
+    private MyVibrator vibrator;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -112,6 +115,16 @@ public class MainActivity
             }
 
             restoreLastImage();
+
+            vibrator = new MyVibrator(this);
+
+            /* TODO make this check work
+            try {
+                int i = Settings.System.getInt(getApplicationContext().getContentResolver(), Settings.System.VIBRATE_ON);
+                Log.i(TAG, "Vibrate is "+i);
+            } catch (Settings.SettingNotFoundException e) {
+                e.printStackTrace();
+            }*/
         }
     }
 
@@ -381,6 +394,8 @@ public class MainActivity
             final WifiInfo info = wifiManager.getConnectionInfo();
 
             if (!wifiNameMatches(info)) {
+                wifiNameMatches = false;
+
                 // TODO could/should also track with some ID?
                 //closeConnections();
                 if (toggleConnection.isChecked() || connectionStrength.getQuality() != 0) {
@@ -404,9 +419,30 @@ public class MainActivity
             } else {
 
                 // TODO use handler?
+                /* long[] pattern = new long[]{
+                    0,
+                    dot, gap, dash, gap, dot, gap, dot
+                };
+                final Handler handler = new Handler();
+                handler.postDelayer(new Runnable(){
+                    @Override
+                    public void run(){
+                        vibrator.vibrate();
+                        if(!endVibration){
+                            handler.postDelayed(this, timeToRun);
+                        }
+                    }
+                }, timeToRun);
+                */
                 // TODO only do something on larger change?
 
                 // TODO signal warning if quality worsens
+
+                if (!wifiNameMatches) {
+                    vibrator.vibratePattern(200, 100, 200);
+                }
+
+                wifiNameMatches = true;
 
                 runOnUiThread(new Runnable() {
                     @Override

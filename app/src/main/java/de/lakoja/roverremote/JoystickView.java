@@ -24,10 +24,8 @@ import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
-import android.os.Vibrator;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -36,7 +34,7 @@ import java.text.DecimalFormat;
 public class JoystickView extends View implements Runnable {
 
     private static final String TAG = JoystickView.class.getName();
-    private static final int OUTSIDE_VIBRATE = 15; // TODO could depend on dp?
+    private static final int OUTSIDE_VIBRATE = 30; // TODO could depend on dp?
 
     public interface PositionChangeListener {
         void onPositionChange(Direction newDirection);
@@ -55,7 +53,7 @@ public class JoystickView extends View implements Runnable {
     private Direction lastReportDirection = null;
     private boolean monitorFingerDown = false;
     private PositionChangeListener changeListener = null;
-    private Vibrator vibrator;
+    private MyVibrator vibrator;
     private float currentVoltage = 0;
     private DecimalFormat voltageFormatter;
     private Rect textBounds;
@@ -81,8 +79,7 @@ public class JoystickView extends View implements Runnable {
         whiteForegroundHair = new Paint(whiteForeground);
         whiteForegroundHair.setStrokeWidth(1.0f);
 
-        // TODO could depend on a setting
-        vibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+        vibrator = new MyVibrator(context);
 
         voltageFormatter = new DecimalFormat("0.00V");
         textBounds = new Rect();
@@ -158,8 +155,6 @@ public class JoystickView extends View implements Runnable {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        //super.onTouchEvent(event);
-
         float radius = controllerRadius;
 
         PointF thisTouch = new PointF(event.getX(), event.getY());
@@ -173,7 +168,7 @@ public class JoystickView extends View implements Runnable {
 
         if (!isUp && validTouch && getDistanceToCenter(thisTouch) > outerRadius) {
             if (vibrator != null) {
-                vibrator.vibrate(20);
+                vibrator.vibratePattern(20, 100, 20);
             }
 
             thisTouch = calculatePointOnCircle(thisTouch, outerRadius);
@@ -191,12 +186,13 @@ public class JoystickView extends View implements Runnable {
 
                 invalidate(changeRect);
 
-                if (!isUp && vibrator != null) {
-                    if (wasOutIsNowInX(lastTouch, thisTouch)) {
-                        vibrator.vibrate(200);
+                if (!isUp) {
+                    // TODO simplify
+                    if (wasOutIsNowInX(lastTouch, thisTouch) || wasOutIsNowInY(lastTouch, thisTouch)) {
+                        vibrator.vibrateOnce(50);
                     }
-                    if (wasOutIsNowInY(lastTouch, thisTouch)) {
-                        vibrator.vibrate(300);
+                    if (wasInIsNowOutX(lastTouch, thisTouch) || wasInIsNowOutY(lastTouch, thisTouch)) {
+                        vibrator.vibrateOnce(200);
                     }
                     // TODO snap on 0?
                 }
@@ -286,6 +282,14 @@ public class JoystickView extends View implements Runnable {
 
     private boolean wasOutIsNowInY(PointF lastTouch, PointF thisTouch) {
         return (Math.abs(lastTouch.y - centerPoint.y) >= OUTSIDE_VIBRATE && Math.abs(thisTouch.y - centerPoint.y) < OUTSIDE_VIBRATE);
+    }
+
+    private boolean wasInIsNowOutX(PointF lastTouch, PointF thisTouch) {
+        return (Math.abs(lastTouch.x - centerPoint.x) < OUTSIDE_VIBRATE && Math.abs(thisTouch.x - centerPoint.x) >= OUTSIDE_VIBRATE);
+    }
+
+    private boolean wasInIsNowOutY(PointF lastTouch, PointF thisTouch) {
+        return (Math.abs(lastTouch.y - centerPoint.y) < OUTSIDE_VIBRATE && Math.abs(thisTouch.y - centerPoint.y) >= OUTSIDE_VIBRATE);
     }
 
     @Override
