@@ -27,6 +27,9 @@ import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -76,8 +79,9 @@ public class MainActivity
     private int lastImageBackColor;
     private long lastStatusCheck = 0;
     private boolean wifiNameMatches = false;
-
     private MyVibrator vibrator;
+
+    private Handler uiUpdater;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -125,15 +129,31 @@ public class MainActivity
             } catch (Settings.SettingNotFoundException e) {
                 e.printStackTrace();
             }*/
+
+            uiUpdater = new Handler(Looper.getMainLooper()) {
+                @Override
+                public void handleMessage(Message message) {
+                    switch (message.what) {
+                        case R.id.joystick:
+                            positionControl.showVolt(message.arg1 / 1000.0f);
+                            break;
+                        case R.id.connectionStrength:
+                            connectionStrength.setQuality(message.arg1);
+                            break;
+                        case R.id.imageView:
+                            setImageBackColor(Color.GREEN);
+                            imageView.setImageBitmap((Bitmap)message.obj);
+                            connectionThroughput.setQuality(message.arg1 / 1000.0f);
+                            break;
+                    }
+                }
+            };
         }
     }
 
     private void connectButtons() {
         toggleConnection = findViewById(R.id.toggleConnection);
         toggleConnection.setOnCheckedChangeListener(this);
-        //toggleLed1 = findViewById(R.id.toggleLed1);
-        //toggleLed1.setOnCheckedChangeListener(this);
-        //toggleLed1.setEnabled(false);
         toggleLed2 = findViewById(R.id.toggleLed2);
         toggleLed2.setOnCheckedChangeListener(this);
         toggleLed2.setEnabled(false);
@@ -237,7 +257,6 @@ public class MainActivity
                 return;
             }
 
-            //toggleLed1.setEnabled(isCheckedNow);
             toggleLed2.setEnabled(isCheckedNow);
             toggleInfraLed.setEnabled(isCheckedNow);
 
@@ -275,7 +294,6 @@ public class MainActivity
     }
 
     private boolean wifiNameMatches(WifiInfo info) {
-        // Also removes
         return info.getSSID().replaceAll("^\"|\"$", "").equals(DESIRED_WIFI_NAME);
     }
 
@@ -349,12 +367,8 @@ public class MainActivity
     @Override
     public void informRoverStatus(final RoverStatus currentStatus) {
         if (currentStatus.getVoltage() > 0) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    MainActivity.this.positionControl.showVolt(currentStatus.getVoltage());
-                }
-            });
+            Message m = uiUpdater.obtainMessage(R.id.joystick, (int)(currentStatus.getVoltage() * 1000), 0);
+            m.sendToTarget();
         }
     }
 
@@ -418,22 +432,6 @@ public class MainActivity
                 }
             } else {
 
-                // TODO use handler?
-                /* long[] pattern = new long[]{
-                    0,
-                    dot, gap, dash, gap, dot, gap, dot
-                };
-                final Handler handler = new Handler();
-                handler.postDelayer(new Runnable(){
-                    @Override
-                    public void run(){
-                        vibrator.vibrate();
-                        if(!endVibration){
-                            handler.postDelayed(this, timeToRun);
-                        }
-                    }
-                }, timeToRun);
-                */
                 // TODO only do something on larger change?
 
                 // TODO signal warning if quality worsens
@@ -444,15 +442,10 @@ public class MainActivity
 
                 wifiNameMatches = true;
 
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        int rssi = info.getRssi();
-                        int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
-                        connectionStrength.setQuality(signalLevel);
-                        // TODO also show rssi as value
-                    }
-                });
+                int rssi = info.getRssi();
+                int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);
+                Message m = uiUpdater.obtainMessage(R.id.connectionStrength, signalLevel, 0);
+                m.sendToTarget();
             }
 
             if (lastImageMillis > 0) {
@@ -489,25 +482,22 @@ public class MainActivity
 
     @Override
     public void imagePresent(final Bitmap bitmap, final long timestampMillis, final byte[] rawData, final float lastKbps) {
-        // TODO use handler? Is there any synchronisation for multiple of these Runnables?
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                setImageBackColor(Color.GREEN);
-                imageView.setImageBitmap(bitmap);
-                MainActivity.this.lastImageData = rawData;
-                MainActivity.this.lastImageMillis = timestampMillis;
+        // Is there any synchronisation for multiple of these calls?
 
-                // 1MB/s is maximum shown throughput
-                // Formula found experimentally: uses a moderatly logarithmic curve mapping 0..1000 to 0..100
-                //   See https://rechneronline.de/funktionsgraphen/
-                float qualityValue = 49 * (float)Math.log((lastKbps + 150) / 150);
-                connectionThroughput.setQuality(qualityValue);
-            }
-        });
+        lastImageData = rawData;
+        lastImageMillis = timestampMillis;
+
+        // 1MB/s is maximum shown throughput
+        // Formula found experimentally: uses a moderatly logarithmic curve mapping 0..1000 to 0..100
+        //   See https://rechneronline.de/funktionsgraphen/
+        float qualityValue = 49 * (float)Math.log((lastKbps + 150) / 150);
+
+        // TODO two single messages?
+        Message m = uiUpdater.obtainMessage(R.id.imageView, (int)(qualityValue * 1000), 0, bitmap);
+        m.sendToTarget();
     }
 
-    // TODO stop image display/request once paused?
+    // TODO stop image display/request once paused
 
     // TODO this should only set a border (if image does not fit view correctly this background border will be big)
     private void setImageBackColor(int color) {
