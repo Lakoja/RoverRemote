@@ -69,6 +69,7 @@ public class MainActivity
     private QualityView connectionThroughput;
     private JoystickView positionControl;
     private ImageView imageView;
+    private View imageBorder;
 
     private WifiManager wifiManager;
     private RoverConnection roverConnection;
@@ -111,8 +112,8 @@ public class MainActivity
             positionControl = findViewById(R.id.joystick);
             positionControl.setPositionChangeListener(this);
 
-            // TODO scaling options?
             imageView = findViewById(R.id.imageView);
+            imageBorder = findViewById(R.id.imageBorder);
 
             if (savedInstanceState != null) {
                 // TODO does not work in onSaveInstanceState
@@ -144,6 +145,9 @@ public class MainActivity
                             setImageBackColor(Color.GREEN);
                             imageView.setImageBitmap((Bitmap)message.obj);
                             connectionThroughput.setQuality(message.arg1 / 1000.0f);
+                            break;
+                        case R.id.imageBorder:
+                            setImageBackColor(message.arg1);
                             break;
                     }
                 }
@@ -344,8 +348,6 @@ public class MainActivity
                 });
             }
         } else {
-            //final String toastText = getResources().getString(R.string.connection_failed) + " " + returnCode + " " + message;
-
             final String errorText = getResources().getString(R.string.connection_failed) + " " + returnCode + " " + message;
             Log.e(TAG, errorText);
 
@@ -457,13 +459,8 @@ public class MainActivity
                     desiredColor = Color.YELLOW;
                 }
                 if (lastImageBackColor != desiredColor) {
-                    final int colorToSet = desiredColor;
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            setImageBackColor(colorToSet);
-                        }
-                    });
+                    Message m = uiUpdater.obtainMessage(R.id.imageBorder, desiredColor);
+                    m.sendToTarget();
                 }
             }
 
@@ -503,7 +500,7 @@ public class MainActivity
     private void setImageBackColor(int color) {
         if (lastImageBackColor != color) {
             lastImageBackColor = color;
-            imageView.setBackgroundColor(lastImageBackColor); // TODO  what about repaint performance?
+            imageBorder.setBackgroundColor(lastImageBackColor); // TODO  what about repaint performance?
         }
     }
 }
