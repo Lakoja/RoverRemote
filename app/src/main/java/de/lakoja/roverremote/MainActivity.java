@@ -64,7 +64,6 @@ public class MainActivity
     private ToggleButton toggleConnection;
     private ToggleButton toggleLed2;
     private ToggleButton toggleInfraLed;
-    private Button btnWifi;
     private QualityView connectionStrength;
     private QualityView connectionThroughput;
     private JoystickView positionControl;
@@ -83,6 +82,8 @@ public class MainActivity
     private MyVibrator vibrator;
 
     private Handler uiUpdater;
+    private Handler connectionStopper;
+    private Runnable connectionStopperRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,22 +103,7 @@ public class MainActivity
             });
             builder.show();
         } else {
-            connectButtons();
-
-            connectionStrength = findViewById(R.id.connectionStrength);
-            connectionStrength.setQuality(0);
-            connectionThroughput = findViewById(R.id.connectionThroughput);
-            connectionThroughput.setQuality(0);
-
-            positionControl = findViewById(R.id.joystick);
-            positionControl.setPositionChangeListener(this);
-
-            imageView = findViewById(R.id.imageView);
-            imageBorder = findViewById(R.id.imageBorder);
-
-            if (savedInstanceState != null) {
-                // TODO does not work in onSaveInstanceState
-            }
+            setupUi();
 
             restoreLastImage();
 
@@ -152,10 +138,16 @@ public class MainActivity
                     }
                 }
             };
+
+            connectionStopperRunnable = new Runnable() {
+                public void run() {
+                    MainActivity.this.toggleConnection.setChecked(false); // Will call closeConnections();
+                }
+            };
         }
     }
 
-    private void connectButtons() {
+    private void setupUi() {
         toggleConnection = findViewById(R.id.toggleConnection);
         toggleConnection.setOnCheckedChangeListener(this);
         toggleLed2 = findViewById(R.id.toggleLed2);
@@ -164,13 +156,21 @@ public class MainActivity
         toggleInfraLed = findViewById(R.id.toggleInfra);
         toggleInfraLed.setOnCheckedChangeListener(this);
         toggleInfraLed.setEnabled(false);
-        btnWifi = findViewById(R.id.btnWifi);
+        Button btnWifi = findViewById(R.id.btnWifi);
         btnWifi.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));
             }
         });
+        connectionStrength = findViewById(R.id.connectionStrength);
+        connectionStrength.setQuality(0);
+        connectionThroughput = findViewById(R.id.connectionThroughput);
+        connectionThroughput.setQuality(0);
+        positionControl = findViewById(R.id.joystick);
+        positionControl.setPositionChangeListener(this);
+        imageView = findViewById(R.id.imageView);
+        imageBorder = findViewById(R.id.imageBorder);
     }
 
     private void restoreLastImage() {
@@ -205,6 +205,14 @@ public class MainActivity
     protected void onResume() {
         super.onResume();
 
+        if (connectionStopper != null) {
+            connectionStopper.removeCallbacks(connectionStopperRunnable);
+            connectionStopper = null;
+        }
+
+        WifiInfo info = wifiManager.getConnectionInfo();
+        wifiNameMatches = wifiNameMatches(info);
+
         checkSystemLoop = true;
         new Thread(this).start();
     }
@@ -216,15 +224,9 @@ public class MainActivity
         checkSystemLoop = false;
 
         saveLastImage();
-    }
 
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        // NOTE only called for system events
-
-        super.onSaveInstanceState(outState);
-
-        // TODO does not work
+        connectionStopper = new Handler(Looper.getMainLooper());
+        connectionStopper.postDelayed(connectionStopperRunnable, 5*60*1000); // TODO make configurable?
     }
 
     private void saveLastImage() {
@@ -244,8 +246,6 @@ public class MainActivity
     @Override
     protected void onDestroy() {
         closeConnections();
-
-        // TODO also use a timer for connection close
 
         super.onDestroy();
     }
@@ -292,6 +292,11 @@ public class MainActivity
 
             } else {
                 closeConnections();
+
+                if (connectionThroughput.getQuality() != 0) {
+                    connectionThroughput.setQuality(0);
+                }
+
                 Toast.makeText(this, R.string.disconnection_toast, Toast.LENGTH_LONG).show();
             }
         }
@@ -337,7 +342,7 @@ public class MainActivity
     // TODO this is specified by two interfaces; that is rather odd
     public void informConnectionStatus(int returnCode, final String requested, String message) {
         if (returnCode == 200) {
-            if (requested.equals("status")) {
+            if (requested.equals("status")) { // TODO
                 final String toastText = getResources().getString(R.string.connection_successful) + " " + message;
 
                 runOnUiThread(new Runnable() {
@@ -405,7 +410,6 @@ public class MainActivity
     public void run() {
         while (checkSystemLoop) {
             // Check for wifi quality constantly
-            // TODO stop on pause?
 
             final WifiInfo info = wifiManager.getConnectionInfo();
 
@@ -413,19 +417,16 @@ public class MainActivity
                 wifiNameMatches = false;
 
                 // TODO could/should also track with some ID?
-                //closeConnections();
-                if (toggleConnection.isChecked() || connectionStrength.getQuality() != 0) {
+                if (toggleConnection.isChecked()) {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             if (toggleConnection.isChecked()) {
                                 toggleConnection.setChecked(false);
                             }
+
                             if (connectionStrength.getQuality() != 0) {
                                 connectionStrength.setQuality(0);
-                            }
-                            if (connectionThroughput.getQuality() != 0) {
-                                connectionThroughput.setQuality(0);
                             }
                             Log.e(TAG, "Wifi has wrong name " + info.getSSID());
                             Toast.makeText(MainActivity.this, R.string.no_connection_wrong_name, Toast.LENGTH_LONG).show();
@@ -433,12 +434,12 @@ public class MainActivity
                     });
                 }
             } else {
-
                 // TODO only do something on larger change?
 
                 // TODO signal warning if quality worsens
 
                 if (!wifiNameMatches) {
+                    // TODO this does not really make sense/happen as it isn't done automatically
                     vibrator.vibratePattern(200, 100, 200);
                 }
 
@@ -494,13 +495,10 @@ public class MainActivity
         m.sendToTarget();
     }
 
-    // TODO stop image display/request once paused
-
-    // TODO this should only set a border (if image does not fit view correctly this background border will be big)
     private void setImageBackColor(int color) {
         if (lastImageBackColor != color) {
             lastImageBackColor = color;
-            imageBorder.setBackgroundColor(lastImageBackColor); // TODO  what about repaint performance?
+            imageBorder.setBackgroundColor(lastImageBackColor);
         }
     }
 }
