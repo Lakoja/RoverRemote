@@ -54,7 +54,6 @@ public class MainActivity
             Runnable,
             CompoundButton.OnCheckedChangeListener,
             JoystickView.PositionChangeListener,
-            RoverConnection.StatusListener,
             ImageConnection.ImageListener {
 
     private static final String TAG = MainActivity.class.getName();
@@ -71,7 +70,6 @@ public class MainActivity
     private View imageBorder;
 
     private WifiManager wifiManager;
-    private RoverConnection roverConnection;
     private boolean checkSystemLoop = true;
     private ImageConnection imageConnection;
     private byte[] lastImageData = null;
@@ -141,7 +139,7 @@ public class MainActivity
 
             connectionStopperRunnable = new Runnable() {
                 public void run() {
-                    MainActivity.this.toggleConnection.setChecked(false); // Will call closeConnections();
+                    MainActivity.this.toggleConnection.setChecked(false); // Will call closeConnection();
                 }
             };
         }
@@ -245,7 +243,7 @@ public class MainActivity
 
     @Override
     protected void onDestroy() {
-        closeConnections();
+        closeConnection();
 
         super.onDestroy();
     }
@@ -268,17 +266,13 @@ public class MainActivity
                 String remoteIp = determineRatIp();
                 if (remoteIp != null) {
                     try {
-                        Log.i(TAG, "Opening connections to "+remoteIp);
-
-                        roverConnection = new RoverConnection(remoteIp);
-                        roverConnection.setStatusListener(this);
-                        //roverConnection.openControlConnection();
-
-                        roverConnection.sendControl("image_s");
+                        Log.i(TAG, "Opening connection to "+remoteIp);
 
                         imageConnection = new ImageConnection(remoteIp);
                         imageConnection.setImageListener(this);
                         imageConnection.openConnection();
+
+                        imageConnection.sendControl("image_s");
                     } catch (Exception exc) {
                         // TODO do more
                         Log.e(TAG, "" + exc.getMessage() + "/" + exc.getClass());
@@ -291,7 +285,7 @@ public class MainActivity
                 }
 
             } else {
-                closeConnections();
+                closeConnection();
 
                 if (connectionThroughput.getQuality() != 0) {
                     connectionThroughput.setQuality(0);
@@ -306,11 +300,7 @@ public class MainActivity
         return info.getSSID().replaceAll("^\"|\"$", "").equals(DESIRED_WIFI_NAME);
     }
 
-    private void closeConnections() {
-        if (roverConnection != null) {
-            roverConnection.closeControlConnection();
-            roverConnection = null;
-        }
+    private void closeConnection() {
         if (imageConnection != null) {
             imageConnection.closeConnection();
             imageConnection = null;
@@ -384,13 +374,13 @@ public class MainActivity
         try {
             // TODO only send new commands when old are acknowledged?
 
-            if (roverConnection != null && roverConnection.isConnected()) {
+            if (imageConnection != null && imageConnection.isConnected()) {
                 String command = "move ";
                 command += (500 + Math.round(bend(newDirection.forward) * 500));
                 command += " ";
                 command += (500 + Math.round(bend(newDirection.right) * 500));
 
-                roverConnection.sendControl(command);
+                imageConnection.sendControl(command);
             }
         } catch (Exception exc) {
             // TODO do more
@@ -465,10 +455,10 @@ public class MainActivity
                 }
             }
 
-            if (roverConnection != null && roverConnection.isConnected()) {
+            if (imageConnection != null && imageConnection.isConnected()) {
                 long now = System.currentTimeMillis();
                 if (now - lastStatusCheck > 1900) {
-                    roverConnection.sendControl("status");
+                    imageConnection.sendControl("status");
                     // TODO the actual result may be delayed / request discarded?
                     lastStatusCheck = now;
                 }

@@ -32,11 +32,32 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.StringTokenizer;
 
 public class ImageConnection  implements Runnable {
+
+    private static final long ENTRY_TOO_OLD = 100;
+    private static final long ENTRY_STATUS_TOO_OLD = 800;
+    private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
+
     public interface ImageListener {
         void informConnectionStatus(int returnCode, String requested, String message);
         void imagePresent(Bitmap bitmap, long timestampMillis, byte[] rawData, float lastKbps);
+        void informRoverStatus(RoverStatus currentStatus);
+    }
+
+    private class QueueEntry {
+        String controlRequest;
+        long requestQueueMillis;
+
+        public QueueEntry(String request) {
+            controlRequest = request;
+            requestQueueMillis = System.currentTimeMillis();
+        }
+
+        public long age() {
+            return System.currentTimeMillis() - requestQueueMillis;
+        }
     }
 
     private static final String TAG = ImageConnection.class.getName();
@@ -50,6 +71,8 @@ public class ImageConnection  implements Runnable {
     private float lastTransferKbpsMean = 0;
     private long lastTransferOutTime = 0;
 
+    private Queue<ImageConnection.QueueEntry> commandQueue = new LinkedList<>();
+
     public ImageConnection(String host) {
         this.host = host;
         lastImageTime = System.currentTimeMillis();
@@ -57,6 +80,15 @@ public class ImageConnection  implements Runnable {
 
     public void setImageListener(ImageListener imageListener) {
         this.imageListener = imageListener;
+    }
+
+    public boolean isConnected() {
+        return serverConnection != null && serverConnection.isConnected();
+    }
+
+    public void sendControl(String controlRequest) {
+        // TODO send confirmation to caller?
+        commandQueue.add(new ImageConnection.QueueEntry(controlRequest));
     }
 
     @Override
@@ -102,131 +134,182 @@ public class ImageConnection  implements Runnable {
             DataInputStream stream = new DataInputStream(new BufferedInputStream(input));
 
             while (active) {
-                writer.println("GET / HTTP/1.1");
-                writer.flush();
 
-                //Log.i(TAG, "Sent image request");
+                // TODO simplify / beautify control handling vs image handling
 
-                // Note also this reader buffers; so one cannot start to read image data out of the underlying input stream after reading lines.
-                //InputStreamReader reader = new InputStreamReader(stream);
+                // TODO slot-in image request at least from time to time
 
-                String currentLine = readLine(stream);
+                boolean sentCommand = false;
+                if (!commandQueue.isEmpty()) {
+                    ImageConnection.QueueEntry command = commandQueue.remove();
+                    if (entryAlive(command)) {
+                        sentCommand = true;
 
-                // TODO remove / probably not necessary
-                int garbageDataSkipped = 0;
-                while (!currentLine.startsWith("HTTP/1.1 ")) {
-                    garbageDataSkipped += currentLine.length();
+                        long m1 = System.currentTimeMillis();
+                        writer.println("GET /"+command.controlRequest);
+                        writer.flush();
+                        long m2 = System.currentTimeMillis();
+                        String result = readLine(stream);
+                        if (result.length() == 0) {
+                            // TODO understand and remove
+                            result = readLine(stream);
+                        }
+                        long m3 = System.currentTimeMillis();
+                        // TODO also read everything there is?
+                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w" + (m2 - m1) + " r" + (m3 - m2));
 
-                    if (garbageDataSkipped > 100000) {
-                        Log.wtf(TAG, "Cannot skip any more garbage data");
-                        break;
+                        // TODO less or more explicit "status"
+                        if (command.controlRequest.equals("status")) {
+                            if (imageListener != null) {
+                                // TODO support more
+                                StringTokenizer tokenizer = new StringTokenizer(result, " ");
+                                if (tokenizer.countTokens() >= 2) {
+                                    tokenizer.nextToken(); // TODO check for VOLT (or STATUS)
+                                    String voltageRaw = tokenizer.nextToken();
+                                    try {
+                                        float voltage = Float.parseFloat(voltageRaw);
+                                        RoverStatus status = new RoverStatus(false, false, false, voltage);
+
+                                        imageListener.informRoverStatus(status);
+                                    } catch (NumberFormatException exc) {
+                                        Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
+                                    }
+                                } else {
+                                    Log.e(TAG, "False rover status reply; too few tokens: "+result);
+                                }
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Discarding command " + command.controlRequest + " age " + command.age());
+                    }
+                }
+
+                if (!sentCommand) {
+                    writer.println("GET / HTTP/1.1");
+                    writer.flush();
+
+                    //Log.i(TAG, "Sent image request");
+
+                    // Note also this reader buffers; so one cannot start to read image data out of the underlying input stream after reading lines.
+                    //InputStreamReader reader = new InputStreamReader(stream);
+
+                    String currentLine = readLine(stream);
+
+                    // TODO remove / probably not necessary
+                    int garbageDataSkipped = 0;
+                    while (!currentLine.startsWith("HTTP/1.1 ")) {
+                        garbageDataSkipped += currentLine.length();
+
+                        if (garbageDataSkipped > 100000) {
+                            Log.wtf(TAG, "Cannot skip any more garbage data");
+                            break;
+                        }
+
+                        currentLine = readLine(stream);
                     }
 
-                    currentLine = readLine(stream);
-                }
+                    if (garbageDataSkipped > 0) {
+                        Log.e(TAG, "Skipped garbage data: " + garbageDataSkipped);
+                    }
 
-                if (garbageDataSkipped > 0) {
-                    Log.e(TAG, "Skipped garbage data: "+garbageDataSkipped);
-                }
-
-                int code = 0;
-                if (currentLine.startsWith("HTTP/1.1 ")) {
-                    String responseCode = currentLine.substring(9);
-                    String[] responseCodeParts = responseCode.split(" ");
-                    try {
-                        code = Integer.parseInt(responseCodeParts[0]);
-                    } catch (NumberFormatException exc) {
-                        // TODO report on gui? All errors?
-                        Log.e(TAG, "Illegal response code: " + responseCode);
+                    int code = 0;
+                    if (currentLine.startsWith("HTTP/1.1 ")) {
+                        String responseCode = currentLine.substring(9);
+                        String[] responseCodeParts = responseCode.split(" ");
+                        try {
+                            code = Integer.parseInt(responseCodeParts[0]);
+                        } catch (NumberFormatException exc) {
+                            // TODO report on gui? All errors?
+                            Log.e(TAG, "Illegal response code: " + responseCode);
+                            closeConnection(true);
+                            return;
+                        }
+                    } else {
+                        Log.e(TAG, "Did not get HTTP/1.1 response: " + (int) currentLine.charAt(0) + " " + (int) currentLine.charAt(1) + " " + currentLine);
                         closeConnection(true);
                         return;
                     }
-                } else {
-                    Log.e(TAG, "Did not get HTTP/1.1 response: "+(int)currentLine.charAt(0)+" "+(int)currentLine.charAt(1)+" "+currentLine);
-                    closeConnection(true);
-                    return;
-                }
 
-                if (code != 200) {
-                    Log.w(TAG, "Errorneous response code: "+code);
-                    closeConnection(true);
-                    return;
-                }
+                    if (code != 200) {
+                        Log.w(TAG, "Errorneous response code: " + code);
+                        closeConnection(true);
+                        return;
+                    }
 
-                //Log.i(TAG, "Got HTTP response");
+                    //Log.i(TAG, "Got HTTP response");
 
-                currentLine = readLine(stream);
+                    currentLine = readLine(stream);
 
-                if (!currentLine.equals("Content-Type: image/jpeg")) {
-                    Log.e(TAG, "Got wrong stream content type: "+currentLine);
-                    closeConnection(true);
-                    return;
-                }
+                    if (!currentLine.equals("Content-Type: image/jpeg")) {
+                        Log.e(TAG, "Got wrong stream content type: " + currentLine);
+                        closeConnection(true);
+                        return;
+                    }
 
-                currentLine = readLine(stream);
+                    currentLine = readLine(stream);
 
-                String sizeMarker = "Content-Length: ";
-                if (!currentLine.startsWith(sizeMarker)) {
-                    Log.e(TAG, "Got wrong stream content length: "+currentLine);
-                    closeConnection(true);
-                    return;
-                }
+                    String sizeMarker = "Content-Length: ";
+                    if (!currentLine.startsWith(sizeMarker)) {
+                        Log.e(TAG, "Got wrong stream content length: " + currentLine);
+                        closeConnection(true);
+                        return;
+                    }
 
-                String size = currentLine.substring(sizeMarker.length());
-                int imageSize = 0;
-                try {
-                    imageSize = Integer.parseInt(size);
-                } catch (NumberFormatException exc) {
-                    // TODO report on gui?
-                    Log.e(TAG, "Illegal image size " + imageSize);
-                    closeConnection(true);
-                    return;
-                }
+                    String size = currentLine.substring(sizeMarker.length());
+                    int imageSize = 0;
+                    try {
+                        imageSize = Integer.parseInt(size);
+                    } catch (NumberFormatException exc) {
+                        // TODO report on gui?
+                        Log.e(TAG, "Illegal image size " + imageSize);
+                        closeConnection(true);
+                        return;
+                    }
 
-                //Log.i(TAG, "Reading image with size "+imageSize);
+                    //Log.i(TAG, "Reading image with size "+imageSize);
 
-                currentLine = readLine(stream);
+                    currentLine = readLine(stream);
 
-                if (currentLine.length() != 0) {
-                    Log.e(TAG, "Expected empty separator line after header; but got: "+currentLine);
-                    closeConnection(true);
-                    return;
-                }
+                    if (currentLine.length() != 0) {
+                        Log.e(TAG, "Expected empty separator line after header; but got: " + currentLine);
+                        closeConnection(true);
+                        return;
+                    }
 
-                long imageStartTime = System.currentTimeMillis();
+                    long imageStartTime = System.currentTimeMillis();
 
-                // TODO even more active check (or handle errors differently)?
+                    // TODO even more active check (or handle errors differently)?
 
-                if (imageSize <= 0) {
-                    // TODO support without image size?
-                    Log.e(TAG, "Image response has no size. Cancelling.");
-                    closeConnection(true);
-                    return;
-                }
+                    if (imageSize <= 0) {
+                        // TODO support without image size?
+                        Log.e(TAG, "Image response has no size. Cancelling.");
+                        closeConnection(true);
+                        return;
+                    }
 
-                byte[] imageData = new byte[imageSize];
-                long m1 = System.currentTimeMillis();
+                    byte[] imageData = new byte[imageSize];
+                    long m1 = System.currentTimeMillis();
 
-                stream.readFully(imageData);
+                    stream.readFully(imageData);
 
-                long m2 = System.currentTimeMillis();
-                //logLongWait(m2-m1, "image");
+                    long m2 = System.currentTimeMillis();
+                    //logLongWait(m2-m1, "image");
 
-                float kbps = (imageSize / 1024.0f) / ((m2-m1) / 1000.0f);
+                    float kbps = (imageSize / 1024.0f) / ((m2 - m1) / 1000.0f);
 
-                // TODO this dequeue and enqueue with mean is rather awkward
-                if (lastTransfersKbps.size() == 0) {
-                    lastTransferKbpsMean = kbps;
-                } else if (lastTransfersKbps.size() > 2) {
-                    // dequeue oldest one
-                    float oldestKbps = lastTransfersKbps.remove();
-                    lastTransferKbpsMean = ((lastTransferKbpsMean * (lastTransfersKbps.size() + 1)) - oldestKbps) / lastTransfersKbps.size();
-                }
+                    // TODO this dequeue and enqueue with mean is rather awkward
+                    if (lastTransfersKbps.size() == 0) {
+                        lastTransferKbpsMean = kbps;
+                    } else if (lastTransfersKbps.size() > 2) {
+                        // dequeue oldest one
+                        float oldestKbps = lastTransfersKbps.remove();
+                        lastTransferKbpsMean = ((lastTransferKbpsMean * (lastTransfersKbps.size() + 1)) - oldestKbps) / lastTransfersKbps.size();
+                    }
 
-                lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
-                lastTransfersKbps.add(kbps);
+                    lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
+                    lastTransfersKbps.add(kbps);
 
-                //Log.i(TAG, "Having kbps "+lastTransferKbpsMean);
+                    //Log.i(TAG, "Having kbps "+lastTransferKbpsMean);
 
                 /*
                 int read = 0;
@@ -237,44 +320,44 @@ public class ImageConnection  implements Runnable {
                     logLongWait(m2-m1, "image");
                 }*/
 
-                // TODO remove?
-                // writer.println("ok");
+                    // TODO remove?
+                    // writer.println("ok");
 
-                Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
+                    Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
 
-                if (bmp == null) {
-                    Log.e(TAG, "Found illegal image");
+                    if (bmp == null) {
+                        Log.e(TAG, "Found illegal image");
 
-                    // TODO must be shown more prominently
-                    if (imageListener != null) {
-                        imageListener.informConnectionStatus(500, "image", "illegal image found");
+                        // TODO must be shown more prominently
+                        if (imageListener != null) {
+                            imageListener.informConnectionStatus(500, "image", "illegal image found");
+                        }
+
+                        if (imageSize >= 5) {
+                            Log.e(TAG, "first 5 bytes " + String.format("%x", imageData[0]) + String.format("%x", imageData[1]) + String.format("%x", imageData[2]) + String.format("%x", imageData[3]) + String.format("%x", imageData[4]));
+                            Log.e(TAG, "last 5 bytes " + String.format("%x", imageData[imageSize - 5]) + String.format("%x", imageData[imageSize - 4]) + String.format("%x", imageData[imageSize - 3]) + String.format("%x", imageData[imageSize - 2]) + String.format("%x", imageData[imageSize - 1]));
+                        }
+
+                        // TODO this error might be ignored?
+                        closeConnection(true);
+                        return;
+                    } else {
+                        //Log.i(TAG, "Found image "+bmp.getWidth());
+
+                        if (imageListener != null) {
+                            imageListener.imagePresent(bmp, imageStartTime, imageData, lastTransferKbpsMean);
+                        }
                     }
 
-                    if (imageSize >= 5) {
-                        Log.e(TAG, "first 5 bytes " + String.format("%x", imageData[0]) + String.format("%x", imageData[1]) + String.format("%x", imageData[2]) + String.format("%x", imageData[3]) + String.format("%x", imageData[4]));
-                        Log.e(TAG, "last 5 bytes " + String.format("%x", imageData[imageSize - 5]) + String.format("%x", imageData[imageSize - 4]) + String.format("%x", imageData[imageSize - 3]) + String.format("%x", imageData[imageSize - 2]) + String.format("%x", imageData[imageSize - 1]));
-                    }
 
-                    // TODO this error might be ignored?
-                    closeConnection(true);
-                    return;
-                } else {
-                    //Log.i(TAG, "Found image "+bmp.getWidth());
-
-                    if (imageListener != null) {
-                        imageListener.imagePresent(bmp, imageStartTime, imageData, lastTransferKbpsMean);
+                    long now = System.currentTimeMillis();
+                    long passed = now - imageStartTime;
+                    if (passed > 500 || now - lastTransferOutTime > 4000) {
+                        Log.i(TAG, "Processing image took " + passed + "(last image " + (now - lastImageTime) + ")");
+                        lastTransferOutTime = now;
                     }
+                    lastImageTime = now;
                 }
-
-
-                long now = System.currentTimeMillis();
-                long passed = now - imageStartTime;
-                if (passed > 500 || now - lastTransferOutTime > 4000) {
-                    Log.i(TAG, "Processing image took " + passed + "(last image " + (now - lastImageTime) + ")");
-                    lastTransferOutTime = now;
-                }
-                lastImageTime = now;
-
 
                 // This sleeps (longer) in waiting for input above - if the servers wishes so or the connection is bad
                 try { Thread.sleep(1); } catch (InterruptedException exc) {}
@@ -299,6 +382,21 @@ public class ImageConnection  implements Runnable {
                 }
             }
         }
+    }
+
+    private boolean entryAlive(ImageConnection.QueueEntry entry) {
+        if (entry.controlRequest.endsWith(" 0")) {
+            // Transmit every stop regardless of age
+            return true;
+        } else if (entry.controlRequest.startsWith("status") && entry.age() < ENTRY_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.controlRequest.startsWith("image_s") && entry.age() < ENTRY_IMAGE_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.age() < ENTRY_TOO_OLD) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
