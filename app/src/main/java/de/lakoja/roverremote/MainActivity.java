@@ -272,11 +272,11 @@ public class MainActivity
 
                         roverConnection = new RoverConnection(remoteIp);
                         roverConnection.setStatusListener(this);
-                        roverConnection.openControlConnection();
+                        //roverConnection.openControlConnection();
 
-                        roverConnection.sendControl("status");
+                        roverConnection.sendControl("image_s");
 
-                        imageConnection = new ImageConnection(remoteIp, 81);
+                        imageConnection = new ImageConnection(remoteIp);
                         imageConnection.setImageListener(this);
                         imageConnection.openConnection();
                     } catch (Exception exc) {
@@ -357,7 +357,7 @@ public class MainActivity
             Log.e(TAG, errorText);
 
             // TODO allow missing image connection better
-            if (requested == null) {
+            if (requested == null || requested.equals("control")) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {

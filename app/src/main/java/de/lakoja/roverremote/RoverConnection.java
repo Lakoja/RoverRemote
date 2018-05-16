@@ -34,6 +34,7 @@ public class RoverConnection implements Runnable {
 
     private static final long ENTRY_TOO_OLD = 100;
     private static final long ENTRY_STATUS_TOO_OLD = 800;
+    private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
 
     public interface StatusListener {
         void informConnectionStatus(int returnCode, String requested, String message);
@@ -177,6 +178,8 @@ public class RoverConnection implements Runnable {
             // Transmit every stop regardless of age
             return true;
         } else if (entry.controlRequest.startsWith("status") && entry.age() < ENTRY_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.controlRequest.startsWith("image_s") && entry.age() < ENTRY_IMAGE_STATUS_TOO_OLD) {
             return true;
         } else if (entry.age() < ENTRY_TOO_OLD) {
             return true;
