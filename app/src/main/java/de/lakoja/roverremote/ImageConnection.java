@@ -36,7 +36,7 @@ import java.util.StringTokenizer;
 
 public class ImageConnection  implements Runnable {
 
-    private static final long ENTRY_TOO_OLD = 100;
+    private static final long ENTRY_TOO_OLD = 300;
     private static final long ENTRY_STATUS_TOO_OLD = 800;
     private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
 
@@ -240,6 +240,13 @@ public class ImageConnection  implements Runnable {
 
                     currentLine = readLine(stream);
 
+                    if (currentLine.equals("NOIY")) {
+                        // No image yet; wait a bit in order to not flood the connection
+
+                        try { Thread.sleep(5); } catch (InterruptedException exception) { }
+                        continue;
+                    }
+
                     if (!currentLine.equals("Content-Type: image/jpeg")) {
                         Log.e(TAG, "Got wrong stream content type: " + currentLine);
                         closeConnection(true);
@@ -410,7 +417,7 @@ public class ImageConnection  implements Runnable {
         long time1 = System.currentTimeMillis();
         boolean timeError = false;
         while (stream.available() <= 0) {
-            if (System.currentTimeMillis() - time1 > 10000 && !timeError) {
+            if (System.currentTimeMillis() - time1 > 5000 && !timeError) {
                 Log.e(TAG, "Waited too long for line data");
 
                 timeError = true;
