@@ -444,9 +444,9 @@ public class MainActivity
             if (lastImageMillis > 0) {
                 int desiredColor = lastImageBackColor;
 
-                if (System.currentTimeMillis() - lastImageMillis > 5000) {
+                if (System.currentTimeMillis() - lastImageMillis > 2000) {
                     desiredColor = COLOR_ORANGE;
-                } else if (System.currentTimeMillis() - lastImageMillis > 1500) {
+                } else if (System.currentTimeMillis() - lastImageMillis > 500) {
                     desiredColor = Color.YELLOW;
                 }
                 if (lastImageBackColor != desiredColor) {

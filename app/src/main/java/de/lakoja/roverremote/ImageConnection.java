@@ -70,6 +70,7 @@ public class ImageConnection  implements Runnable {
     private Queue<Float> lastTransfersKbps = new LinkedList<>();
     private float lastTransferKbpsMean = 0;
     private long lastTransferOutTime = 0;
+    private long lastImageRequestTime = 0;
 
     private Queue<ImageConnection.QueueEntry> commandQueue = new LinkedList<>();
 
@@ -184,9 +185,11 @@ public class ImageConnection  implements Runnable {
                     }
                 }
 
-                if (!sentCommand) {
+                long nowBeforeImageRequest = System.currentTimeMillis();
+                if (!sentCommand && nowBeforeImageRequest - lastImageRequestTime >= 100) {
                     writer.println("GET / HTTP/1.1");
                     writer.flush();
+                    lastImageRequestTime = nowBeforeImageRequest;
 
                     //Log.i(TAG, "Sent image request");
 
@@ -241,9 +244,9 @@ public class ImageConnection  implements Runnable {
                     currentLine = readLine(stream);
 
                     if (currentLine.equals("NOIY")) {
-                        // No image yet; wait a bit in order to not flood the connection
+                        // No new image yet; the time guard above (lastImageRequestTime) makes sure the
+                        // server is not flooded with requests
 
-                        try { Thread.sleep(5); } catch (InterruptedException exception) { }
                         continue;
                     }
 
@@ -357,13 +360,13 @@ public class ImageConnection  implements Runnable {
                     }
 
 
-                    long now = System.currentTimeMillis();
-                    long passed = now - imageStartTime;
-                    if (passed > 500 || now - lastTransferOutTime > 4000) {
-                        Log.i(TAG, "Processing image took " + passed + "(last image " + (now - lastImageTime) + ")");
-                        lastTransferOutTime = now;
+                    long nowAfterImageReceive = System.currentTimeMillis();
+                    long passed = nowAfterImageReceive - imageStartTime;
+                    if (passed > 500 || nowAfterImageReceive - lastTransferOutTime > 4000) {
+                        Log.i(TAG, "Processing image took " + passed + "(last image " + (nowAfterImageReceive - lastImageTime) + ")");
+                        lastTransferOutTime = nowAfterImageReceive;
                     }
-                    lastImageTime = now;
+                    lastImageTime = nowAfterImageReceive;
                 }
 
                 // This sleeps (longer) in waiting for input above - if the servers wishes so or the connection is bad
