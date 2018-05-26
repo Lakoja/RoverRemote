@@ -40,12 +40,6 @@ public class ImageConnection  implements Runnable {
     private static final long ENTRY_STATUS_TOO_OLD = 800;
     private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
 
-    public interface ImageListener {
-        void informConnectionStatus(int returnCode, String requested, String message);
-        void imagePresent(Bitmap bitmap, long timestampMillis, byte[] rawData, float lastKbps);
-        void informRoverStatus(RoverStatus currentStatus);
-    }
-
     private class QueueEntry {
         String controlRequest;
         long requestQueueMillis;
@@ -66,6 +60,7 @@ public class ImageConnection  implements Runnable {
     private boolean active = false;
     private Socket serverConnection;
     private ImageListener imageListener;
+    private StatusListener statusListener;
     private long lastImageTime;
     private Queue<Float> lastTransfersKbps = new LinkedList<>();
     private float lastTransferKbpsMean = 0;
@@ -81,6 +76,10 @@ public class ImageConnection  implements Runnable {
 
     public void setImageListener(ImageListener imageListener) {
         this.imageListener = imageListener;
+    }
+
+    public void setStatusListener(StatusListener statusListener) {
+        this.statusListener = statusListener;
     }
 
     public boolean isConnected() {
@@ -157,11 +156,13 @@ public class ImageConnection  implements Runnable {
                         }
                         long m3 = System.currentTimeMillis();
                         // TODO also read everything there is?
-                        Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w" + (m2 - m1) + " r" + (m3 - m2));
+                        if (m3 - m2 > 100) {
+                            Log.i(TAG, "Control " + command.controlRequest + " resulted in " + result + " took w" + (m2 - m1) + " r" + (m3 - m2));
+                        }
 
                         // TODO less or more explicit "status"
                         if (command.controlRequest.equals("status")) {
-                            if (imageListener != null) {
+                            if (statusListener != null) {
                                 // TODO support more
                                 StringTokenizer tokenizer = new StringTokenizer(result, " ");
                                 if (tokenizer.countTokens() >= 2) {
@@ -171,7 +172,7 @@ public class ImageConnection  implements Runnable {
                                         float voltage = Float.parseFloat(voltageRaw);
                                         RoverStatus status = new RoverStatus(false, false, false, voltage);
 
-                                        imageListener.informRoverStatus(status);
+                                        statusListener.informRoverStatus(status);
                                     } catch (NumberFormatException exc) {
                                         Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
                                     }
@@ -339,8 +340,8 @@ public class ImageConnection  implements Runnable {
                         Log.e(TAG, "Found illegal image");
 
                         // TODO must be shown more prominently
-                        if (imageListener != null) {
-                            imageListener.informConnectionStatus(500, "image", "illegal image found");
+                        if (statusListener != null) {
+                            statusListener.informConnectionStatus(500, "image", "illegal image found");
                         }
 
                         if (imageSize >= 5) {
@@ -362,8 +363,8 @@ public class ImageConnection  implements Runnable {
 
                     long nowAfterImageReceive = System.currentTimeMillis();
                     long passed = nowAfterImageReceive - imageStartTime;
-                    if (passed > 500 || nowAfterImageReceive - lastTransferOutTime > 4000) {
-                        Log.i(TAG, "Processing image took " + passed + "(last image " + (nowAfterImageReceive - lastImageTime) + ")");
+                    if (passed > 500 || nowAfterImageReceive - lastTransferOutTime > 2000) {
+                        Log.i(TAG, "Processing image took " + passed + " (last image " + (nowAfterImageReceive - lastImageTime) + " ago)");
                         lastTransferOutTime = nowAfterImageReceive;
                     }
                     lastImageTime = nowAfterImageReceive;
@@ -387,8 +388,8 @@ public class ImageConnection  implements Runnable {
                 String message = "No image connection " + exc.getMessage() + "/" + exc.getClass();
                 Log.e(TAG, message);
 
-                if (imageListener != null) {
-                    imageListener.informConnectionStatus(500, "image", message);
+                if (statusListener != null) {
+                    statusListener.informConnectionStatus(500, "image", message);
                 }
             }
         }
@@ -473,8 +474,8 @@ public class ImageConnection  implements Runnable {
     public void closeConnection(boolean internalError) {
         active = false;
 
-        if (internalError && imageListener != null) {
-            imageListener.informConnectionStatus(500, "", "Image connection closed");
+        if (internalError && statusListener != null) {
+            statusListener.informConnectionStatus(500, "", "Image connection closed");
         }
     }
 }

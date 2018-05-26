@@ -47,6 +47,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 
 public class MainActivity
         extends AppCompatActivity
@@ -54,7 +56,8 @@ public class MainActivity
             Runnable,
             CompoundButton.OnCheckedChangeListener,
             JoystickView.PositionChangeListener,
-            ImageConnection.ImageListener {
+            ImageListener,
+            StatusListener {
 
     private static final String TAG = MainActivity.class.getName();
     private static final String DESIRED_WIFI_NAME = "Roversnail";
@@ -78,6 +81,7 @@ public class MainActivity
     private long lastStatusCheck = 0;
     private boolean wifiNameMatches = false;
     private MyVibrator vibrator;
+    private UdpImageReceiver udpReceiver;
 
     private Handler uiUpdater;
     private Handler connectionStopper;
@@ -221,6 +225,12 @@ public class MainActivity
 
         checkSystemLoop = false;
 
+        // TODO not exactly correct: image receive like "connections open / connection stopper"
+        if (udpReceiver != null) {
+            udpReceiver.stopActive();
+            udpReceiver = null;
+        }
+
         saveLastImage();
 
         connectionStopper = new Handler(Looper.getMainLooper());
@@ -263,13 +273,14 @@ public class MainActivity
             toggleInfraLed.setEnabled(isCheckedNow);
 
             if (isCheckedNow) {
-                String remoteIp = determineRatIp();
+                final String remoteIp = determineRatIp();
                 if (remoteIp != null) {
                     try {
                         Log.i(TAG, "Opening connection to "+remoteIp);
 
                         imageConnection = new ImageConnection(remoteIp);
                         imageConnection.setImageListener(this);
+                        imageConnection.setStatusListener(this);
                         imageConnection.openConnection();
 
                         imageConnection.sendControl("image_s");
@@ -434,6 +445,28 @@ public class MainActivity
                 }
 
                 wifiNameMatches = true;
+
+                if (udpReceiver == null || !udpReceiver.isAlive()) {
+                    String remoteIp = determineRatIp();
+                    if (remoteIp == null) {
+                        Log.e(TAG, "Cannot determine remote ip");
+                    } else {
+                        InetAddress serverAddress = null;
+                        try {
+                            serverAddress = InetAddress.getByName(remoteIp);
+                        } catch (UnknownHostException exc) {
+                            Log.e(TAG, "Illegal host address " + remoteIp);
+                        }
+
+                        if (serverAddress != null) {
+                            udpReceiver = new UdpImageReceiver(1510, serverAddress);
+
+                            //Log.i(TAG, "System look check " + MainActivity.this.checkSystemLoop);
+
+                            udpReceiver.start();
+                        }
+                    }
+                }
 
                 int rssi = info.getRssi();
                 int signalLevel = WifiManager.calculateSignalLevel(rssi, 100);

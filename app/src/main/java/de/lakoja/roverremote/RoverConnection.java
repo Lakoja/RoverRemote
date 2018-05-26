@@ -36,11 +36,6 @@ public class RoverConnection implements Runnable {
     private static final long ENTRY_STATUS_TOO_OLD = 800;
     private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
 
-    public interface StatusListener {
-        void informConnectionStatus(int returnCode, String requested, String message);
-        void informRoverStatus(RoverStatus currentStatus);
-    }
-
     private class QueueEntry {
         String controlRequest;
         long requestQueueMillis;
