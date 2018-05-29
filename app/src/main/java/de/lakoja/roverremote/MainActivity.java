@@ -460,6 +460,7 @@ public class MainActivity
 
                         if (serverAddress != null) {
                             udpReceiver = new UdpImageReceiver(1510, serverAddress);
+                            udpReceiver.setImageListener(this);
 
                             //Log.i(TAG, "System look check " + MainActivity.this.checkSystemLoop);
 
