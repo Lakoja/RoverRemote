@@ -12,6 +12,7 @@ public class UdpDataHolder {
     private int normalPacketLength;
     private HashSet<Integer> receivedNumbers = new HashSet<>(30);
     private int maximumPacketCount = 0;
+    private byte[] allTheData;
 
     public UdpDataHolder(int timestamp, int normalPacketLength) {
         this.timestamp = timestamp;
@@ -41,7 +42,16 @@ public class UdpDataHolder {
             throw new IllegalArgumentException("New maximum packet count differs from existing "+totalPackets+" vs "+maximumPacketCount);
         }
 
+        if (allTheData == null) {
+            allTheData = new byte[totalPackets * normalPacketLength];
+        }
+
         receivedNumbers.add(packetNumber);
+
+        int dataStart = packetNumber * normalPacketLength;
+        System.arraycopy(data, offset, allTheData, dataStart, length);
+
+        // TODO maybe cut to length if last packet/number received?
     }
 
     public int[] currentlyMissingPackets() {
@@ -71,10 +81,14 @@ public class UdpDataHolder {
     }
 
     public boolean isDataComplete() {
-        return false;
+        return maximumPacketCount > 0 && receivedNumbers.size() == maximumPacketCount;
     }
 
     public byte[] getData() {
-        return new byte[0];
+        return allTheData;
+    }
+
+    public int getMaximumPacketCount() {
+        return maximumPacketCount;
     }
 }

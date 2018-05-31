@@ -327,7 +327,7 @@ public class MainActivity
             ConnectivityManager cm = (ConnectivityManager)getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
                 NetworkInfo ni = cm.getActiveNetworkInfo();
-                Log.w(TAG, "No ip. Network status is "+ni.isConnected());
+                Log.w(TAG, "No ip. Network status is "+(ni != null ? ni.isConnected() : "NO INFO"));
             }
 
             return null; // TODO is this normal?

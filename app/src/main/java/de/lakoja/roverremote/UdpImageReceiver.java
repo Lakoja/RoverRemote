@@ -124,6 +124,7 @@ public class UdpImageReceiver extends Thread {
             }
 
             //Log.i(TAG, "Got packet "+timestamp+" "+packetNumber+"/"+packetsForThisImage);
+            //Log.i(TAG, "Got packet "+timestamp+" first byte "+asHex(data, headerLength, 1));
 
             UdpDataHolder thisImageDataHolder = multipleImageData.get(timestamp);
             boolean isRepairData = false;
@@ -166,7 +167,7 @@ public class UdpImageReceiver extends Thread {
                             problematicImages++;
 
                             if (lastPacketsMissing.length > 2) {
-                                Log.w(TAG, "Too many packets missing for timestamp " + highestLastTimestamp + " missing " + lastPacketsMissing.length + ". Discarding.");
+                                Log.w(TAG, "Too many packets missing for timestamp " + highestLastTimestamp + " missing " + lastPacketsMissing.length + "/"+lastImageDataHolder.getMaximumPacketCount()+". Discarding.");
                             } else {
                                 multipleImageData.put(highestLastTimestamp, lastImageDataHolder);
 
@@ -177,16 +178,8 @@ public class UdpImageReceiver extends Thread {
                                 try {
                                     dos.writeBytes(REREQUEST_PACKET_HEADER);
                                     dos.writeInt(highestLastTimestamp);
-                                    //int loopIndex = 0;
                                     for (int num : lastPacketsMissing) {
                                         dos.writeShort(num);
-
-                                    /*
-                                    loopIndex++;
-
-                                    if (loopIndex < lastPacketsMissing.length) {
-                                        dos.writeByte((byte) ',');
-                                    }*/
                                     }
 
                                     returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
@@ -209,10 +202,16 @@ public class UdpImageReceiver extends Thread {
             }
 
             if (thisImageDataHolder != null) {
-                thisImageDataHolder.add(packetNumber, packetsForThisImage, data, headerLength, data.length - headerLength);
+                thisImageDataHolder.add(packetNumber, packetsForThisImage, data, headerLength, packet.getLength() - headerLength);
 
                 if (thisImageDataHolder.isDataComplete()) {
                     // TODO avoid sending an old image?
+
+                    if (isRepairData) {
+                        Log.i(TAG, "Found repaired image "+timestamp);
+                    } else {
+                        Log.i(TAG, "Found image "+timestamp);
+                    }
 
                     byte[] imageData = thisImageDataHolder.getData();
 
@@ -228,7 +227,7 @@ public class UdpImageReceiver extends Thread {
                             Log.e(TAG, "last 5 bytes " + String.format("%x", imageData[imageSize - 5]) + String.format("%x", imageData[imageSize - 4]) + String.format("%x", imageData[imageSize - 3]) + String.format("%x", imageData[imageSize - 2]) + String.format("%x", imageData[imageSize - 1]));
                         }
                     } else {
-                        Log.i(TAG, "Found image " + bmp.getWidth());
+                        //Log.i(TAG, "Found image " + bmp.getWidth());
 
                         if (imageListener != null) {
                             // TODO kbps
@@ -237,9 +236,12 @@ public class UdpImageReceiver extends Thread {
                     }
                 } else {
                     if (packetNumber > lastPacketNumber + 1) {
+                        //Log.w(TAG, "Missing "+(lastPacketNumber + 1));
                         // TODO do something here? something is done when timestamp changes. Maybe wait for a gap (no receving any more packets)?
                     }
                     // else packetNumber < lastPacketNumber is possible for a new image
+
+                    // TODO do something if "last" packet received but some are missing
                 }
 
                 if (!isRepairData) {
@@ -264,5 +266,18 @@ public class UdpImageReceiver extends Thread {
 
         Log.w(TAG, "Udp receiver exited");
         udpSocket.close();
+    }
+
+    private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
+    private String asHex(byte[] buf, int offset, int length)
+    {
+        char[] chars = new char[2 * length];
+        for (int i = 0; i < length; ++i)
+        {
+            chars[2 * i] = HEX_CHARS[(buf[offset + i] & 0xF0) >>> 4];
+            chars[2 * i + 1] = HEX_CHARS[buf[offset + i] & 0x0F];
+        }
+
+        return new String(chars);
     }
 }
