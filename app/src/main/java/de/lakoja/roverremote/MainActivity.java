@@ -81,7 +81,7 @@ public class MainActivity
     private long lastStatusCheck = 0;
     private boolean wifiNameMatches = false;
     private MyVibrator vibrator;
-    private UdpImageReceiver udpReceiver;
+    private UdpRoverConnection udpConnection;
 
     private Handler uiUpdater;
     private Handler connectionStopper;
@@ -226,9 +226,9 @@ public class MainActivity
         checkSystemLoop = false;
 
         // TODO not exactly correct: image receive like "connections open / connection stopper"
-        if (udpReceiver != null) {
-            udpReceiver.stopActive();
-            udpReceiver = null;
+        if (udpConnection != null) {
+            udpConnection.stopActive();
+            udpConnection = null;
         }
 
         saveLastImage();
@@ -340,7 +340,6 @@ public class MainActivity
         return (rawAddress[0] & 0xff) + "." + (rawAddress[1] & 0xff) + "." + (rawAddress[2] & 0xff) + "." + (rawAddress[3] & 0xff);
     }
 
-    // TODO this is specified by two interfaces; that is rather odd
     public void informConnectionStatus(int returnCode, final String requested, String message) {
         if (returnCode == 200) {
             if (requested.equals("status")) { // TODO
@@ -385,13 +384,19 @@ public class MainActivity
         try {
             // TODO only send new commands when old are acknowledged?
 
-            if (imageConnection != null && imageConnection.isConnected()) {
+            {//if (imageConnection != null && imageConnection.isConnected()) {
                 String command = "move ";
                 command += (500 + Math.round(bend(newDirection.forward) * 500));
                 command += " ";
                 command += (500 + Math.round(bend(newDirection.right) * 500));
 
-                imageConnection.sendControl(command);
+                if (imageConnection != null && imageConnection.isConnected()) {
+                    imageConnection.sendControl(command);
+                }
+
+                if (udpConnection != null && udpConnection.isAlive()) {
+                    udpConnection.sendControl(command);
+                }
             }
         } catch (Exception exc) {
             // TODO do more
@@ -446,7 +451,7 @@ public class MainActivity
 
                 wifiNameMatches = true;
 
-                if (udpReceiver == null || !udpReceiver.isAlive()) {
+                if (udpConnection == null || !udpConnection.isAlive()) {
                     String remoteIp = determineRatIp();
                     if (remoteIp == null) {
                         Log.e(TAG, "Cannot determine remote ip");
@@ -459,12 +464,12 @@ public class MainActivity
                         }
 
                         if (serverAddress != null) {
-                            udpReceiver = new UdpImageReceiver(1510, serverAddress);
-                            udpReceiver.setImageListener(this);
+                            udpConnection = new UdpRoverConnection(1510, serverAddress);
+                            udpConnection.setImageListener(this);
 
                             //Log.i(TAG, "System look check " + MainActivity.this.checkSystemLoop);
 
-                            udpReceiver.start();
+                            udpConnection.start();
                         }
                     }
                 }
@@ -489,10 +494,15 @@ public class MainActivity
                 }
             }
 
-            if (imageConnection != null && imageConnection.isConnected()) {
+            {//if (imageConnection != null && imageConnection.isConnected()) {
                 long now = System.currentTimeMillis();
                 if (now - lastStatusCheck > 1900) {
-                    imageConnection.sendControl("status");
+                    if (imageConnection != null && imageConnection.isConnected()) {
+                        imageConnection.sendControl("status");
+                    }
+                    if (udpConnection != null && udpConnection.isAlive()) {
+                        udpConnection.sendControl("status");
+                    }
                     // TODO the actual result may be delayed / request discarded?
                     lastStatusCheck = now;
                 }

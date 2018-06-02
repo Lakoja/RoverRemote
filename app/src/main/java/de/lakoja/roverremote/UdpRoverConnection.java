@@ -17,11 +17,16 @@ import java.text.DecimalFormat;
 import java.util.LinkedList;
 import java.util.Queue;
 
-public class UdpImageReceiver extends Thread {
-    private static final String TAG = UdpImageReceiver.class.getName();
+public class UdpRoverConnection extends Thread {
+    private static final String TAG = UdpRoverConnection.class.getName();
     private static final String IMAGE_PACKET_HEADER = "RI";
     private static final String REREQUEST_PACKET_HEADER = "MN";
+    private static final String CONTROL_PACKET_HEADER = "CT";
     private static final int UDP_PACKET_DATA_LENGTH = 1200;
+
+    private static final long ENTRY_TOO_OLD = 300;
+    private static final long ENTRY_STATUS_TOO_OLD = 800;
+    private static final long ENTRY_IMAGE_STATUS_TOO_OLD = 1800;
 
     private long lastStatisticsOutMillis = 0;
     private int port;
@@ -33,8 +38,9 @@ public class UdpImageReceiver extends Thread {
     private long lastReportedTimestamp = 0;
     private Queue<Float> lastTransfersKbps = new LinkedList<>();
     private float lastTransferKbpsMean = 0;
+    private Queue<ControlCommand> commandQueue = new LinkedList<>();
 
-    public UdpImageReceiver(int port, InetAddress returnServerAddress) {
+    public UdpRoverConnection(int port, InetAddress returnServerAddress) {
         this.port = port;
         this.returnServerAddress = returnServerAddress;
     }
@@ -45,6 +51,10 @@ public class UdpImageReceiver extends Thread {
 
     public void stopActive() {
         active = false;
+    }
+    public void sendControl(String controlRequest) {
+        // TODO send confirmation to caller?
+        commandQueue.add(new ControlCommand(controlRequest));
     }
 
     @Override
@@ -80,6 +90,34 @@ public class UdpImageReceiver extends Thread {
         int highestLastTimestamp = -1;
 
         while (active) {
+            boolean sentCommand = false;
+            if (!commandQueue.isEmpty()) {
+                ControlCommand command = commandQueue.remove();
+                if (entryAlive(command)) {
+                    sentCommand = true;
+
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream(20);
+                    DataOutputStream dos = new DataOutputStream(bos);
+                    try {
+                        dos.writeBytes(CONTROL_PACKET_HEADER);
+                        dos.writeBytes(command.controlRequest);
+
+                        returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
+                        udpSocket.send(returnPacket);
+
+                        // TODO make more robust
+
+                        //Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
+                    } catch (IOException exc) {
+                        Log.e(TAG, "Problem during sending (control) " + exc.getMessage());
+                    }
+
+                    try { Thread.sleep(1); } catch (InterruptedException exc) { }
+
+                    continue;
+                }
+            }
+
             try {
                 udpSocket.receive(packet);
             } catch (SocketTimeoutException exc) {
@@ -153,6 +191,7 @@ public class UdpImageReceiver extends Thread {
 
             if (thisImageDataHolder == null) {
                 if (timestamp < highestLastTimestamp) {
+                    // TODO consider server reset (starts from low image timestamps
                     Log.w(TAG, "Discarding data for old image " + timestamp + " highest " + highestLastTimestamp);
                 } else {
                     thisImageDataHolder = new UdpDataHolder(timestamp, UDP_PACKET_DATA_LENGTH);
@@ -372,5 +411,21 @@ public class UdpImageReceiver extends Thread {
         }
 
         return new String(chars);
+    }
+
+    // TODO do not work so explicit
+    private boolean entryAlive(ControlCommand entry) {
+        if (entry.controlRequest.endsWith(" 0")) {
+            // Transmit every stop regardless of age
+            return true;
+        } else if (entry.controlRequest.startsWith("status") && entry.age() < ENTRY_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.controlRequest.startsWith("image_s") && entry.age() < ENTRY_IMAGE_STATUS_TOO_OLD) {
+            return true;
+        } else if (entry.age() < ENTRY_TOO_OLD) {
+            return true;
+        }
+
+        return false;
     }
 }
