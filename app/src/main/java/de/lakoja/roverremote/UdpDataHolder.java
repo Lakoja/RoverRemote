@@ -13,6 +13,8 @@ public class UdpDataHolder {
     private HashSet<Integer> receivedNumbers = new HashSet<>(30);
     private int maximumPacketCount = 0;
     private byte[] allTheData;
+    private boolean repairUnderway = false;
+    private long firstDataMillis = 0;
 
     public UdpDataHolder(int timestamp, int normalPacketLength) {
         this.timestamp = timestamp;
@@ -44,6 +46,10 @@ public class UdpDataHolder {
 
         if (allTheData == null) {
             allTheData = new byte[totalPackets * normalPacketLength];
+        }
+
+        if (firstDataMillis == 0) {
+            firstDataMillis = System.currentTimeMillis();
         }
 
         receivedNumbers.add(packetNumber);
@@ -80,8 +86,24 @@ public class UdpDataHolder {
         return missingInts;
     }
 
+    public boolean isRepairUnderway() {
+        return repairUnderway;
+    }
+
+    public void setRepairUnderway(boolean repairUnderway) {
+        this.repairUnderway = repairUnderway;
+    }
+
     public boolean isDataComplete() {
         return maximumPacketCount > 0 && receivedNumbers.size() == maximumPacketCount;
+    }
+
+    public int getReceiveMillis() {
+        if (firstDataMillis == 0) {
+            return 0;
+        }
+
+        return (int)(System.currentTimeMillis() - firstDataMillis);
     }
 
     public byte[] getData() {
