@@ -183,6 +183,13 @@ public class UdpRoverConnection extends Thread {
                 Log.i(TAG, "Got 100th packet "+timestamp+" "+packetNumber+"/"+packetsForThisImage+ " of "+shouldHaveReceivedPackets);
             }
 
+            if (highestLastTimestamp != -1 && timestamp < highestLastTimestamp - 5000) {
+                // Consider this a server reset
+                highestLastTimestamp = -1;
+                lastReportedTimestamp = 0;
+                Log.w(TAG, "Detected a server reset. Resetting timestamp.");
+            }
+
             //Log.i(TAG, "Got packet "+timestamp+" "+packetNumber+"/"+packetsForThisImage);
             //Log.i(TAG, "Got packet "+timestamp+" first byte "+asHex(data, headerLength, 1));
 
@@ -226,6 +233,7 @@ public class UdpRoverConnection extends Thread {
                     if (lastImageDataHolder != null) {
                         int[] lastPacketsMissing = lastImageDataHolder.currentlyMissingPackets();
 
+                        // TODO never reached (anymore)
                         if (lastPacketsMissing.length > 0) {
                             problematicImages++;
                         }  else {
@@ -319,8 +327,6 @@ public class UdpRoverConnection extends Thread {
                             //Log.i(TAG, "Found image " + bmp.getWidth());
 
                             if (imageListener != null) {
-
-
                                 imageListener.imagePresent(bmp, timestamp, imageData, lastTransferKbpsMean);
                                 lastReportedTimestamp = timestamp;
                             }
