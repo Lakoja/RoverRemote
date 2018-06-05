@@ -466,6 +466,7 @@ public class MainActivity
                         if (serverAddress != null) {
                             udpConnection = new UdpRoverConnection(1510, serverAddress);
                             udpConnection.setImageListener(this);
+                            udpConnection.setStatusListener(this);
 
                             //Log.i(TAG, "System look check " + MainActivity.this.checkSystemLoop);
 

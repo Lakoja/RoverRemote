@@ -16,6 +16,7 @@ import java.net.SocketTimeoutException;
 import java.text.DecimalFormat;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.StringTokenizer;
 
 public class UdpRoverConnection extends Thread {
     private static final String TAG = UdpRoverConnection.class.getName();
@@ -33,6 +34,7 @@ public class UdpRoverConnection extends Thread {
     private InetAddress returnServerAddress;
     private boolean active = true;
     private ImageListener imageListener;
+    private StatusListener statusListener;
     private SparseArray<UdpDataHolder> multipleImageData = new SparseArray<>(11);
     private long lastPacketReceiveMillis = 0;
     private long lastReportedTimestamp = 0;
@@ -47,6 +49,10 @@ public class UdpRoverConnection extends Thread {
 
     public void setImageListener(ImageListener imageListener) {
         this.imageListener = imageListener;
+    }
+
+    public void setStatusListener(StatusListener statusListener) {
+        this.statusListener = statusListener;
     }
 
     public void stopActive() {
@@ -152,6 +158,38 @@ public class UdpRoverConnection extends Thread {
 
             byte[] data = packet.getData();
             String packetHeader = new String(data, 0, 2);
+
+            if (packetHeader.equals(CONTROL_PACKET_HEADER)) {
+                String payload = new String(data, 2, packet.getLength() - 2);
+
+                // TODO should probably be "STATUS"
+                if (payload.startsWith("VOLT ")) {
+                    if (statusListener != null) {
+                        StringTokenizer tokenizer = new StringTokenizer(payload, " ");
+                        if (tokenizer.countTokens() >= 2) {
+                            tokenizer.nextToken();
+                            String voltageRaw = tokenizer.nextToken();
+                            try {
+                                float voltage = Float.parseFloat(voltageRaw);
+                                RoverStatus status = new RoverStatus(false, false, false, voltage);
+
+                                statusListener.informRoverStatus(status);
+                            } catch (NumberFormatException exc) {
+                                Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
+                            }
+                        } else {
+                            Log.e(TAG, "False rover status reply; too few tokens: "+payload);
+                        }
+                    }
+                } else if (payload.equals("OKC 0.00,0.00")) {
+                    Log.w(TAG, "Stop confirmed");
+                } else {
+                    //Log.e(TAG, "Got control response "+payload);
+                }
+                // TODO can also check for stop packets - and send again if necessary
+
+                continue;
+            }
 
             if (packet.getLength() < minimumLength || packet.getLength() > maximumLength || !packetHeader.equals(IMAGE_PACKET_HEADER)) {
                 Log.e(TAG, "Received bogus packet "+packetHeader+ " with length "+packet.getLength());
