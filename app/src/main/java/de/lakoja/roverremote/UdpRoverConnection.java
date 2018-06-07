@@ -41,6 +41,8 @@ public class UdpRoverConnection extends Thread {
     private Queue<Float> lastTransfersKbps = new LinkedList<>();
     private float lastTransferKbpsMean = 0;
     private Queue<ControlCommand> commandQueue = new LinkedList<>();
+    private long stopSentMillis = 0;
+    private ControlCommand lastStopCommand = null;
 
     public UdpRoverConnection(int port, InetAddress returnServerAddress) {
         this.port = port;
@@ -96,35 +98,47 @@ public class UdpRoverConnection extends Thread {
         int highestLastTimestamp = -1;
 
         while (active) {
-            boolean sentCommand = false;
-            if (!commandQueue.isEmpty()) {
-                ControlCommand command = commandQueue.remove();
+            ControlCommand command = null;
+            if (stopSentMillis > 0 && System.currentTimeMillis() - stopSentMillis > 250) {
+                command = lastStopCommand;
+                stopSentMillis = 0;
+                lastStopCommand = null;
+            } else if (!commandQueue.isEmpty()) {
+                ControlCommand queuedCommand = commandQueue.remove();
                 if (entryAlive(command)) {
-                    sentCommand = true;
-
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream(20);
-                    DataOutputStream dos = new DataOutputStream(bos);
-                    try {
-                        dos.writeBytes(CONTROL_PACKET_HEADER);
-                        dos.writeBytes(command.controlRequest);
-
-                        returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
-                        udpSocket.send(returnPacket);
-
-                        // TODO make more robust
-
-                        //Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
-                    } catch (IOException exc) {
-                        Log.e(TAG, "Problem during sending (control) " + exc.getMessage());
-                    }
-
-                    try { Thread.sleep(1); } catch (InterruptedException exc) { }
-
-                    continue;
+                    command = queuedCommand;
                 }
             }
 
+            if (command != null) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream(50);
+                DataOutputStream dos = new DataOutputStream(bos);
+                try {
+                    dos.writeBytes(CONTROL_PACKET_HEADER);
+                    dos.writeBytes(command.controlRequest);
+
+                    returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
+                    udpSocket.send(returnPacket);
+
+                    if (isStopCommand(command) && stopSentMillis == 0) {
+                        stopSentMillis = System.currentTimeMillis();
+                        lastStopCommand = command;
+                    }
+
+                    // TODO make more robust
+
+                    //Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
+                } catch (IOException exc) {
+                    Log.e(TAG, "Problem during sending (control) " + exc.getMessage());
+                }
+
+                try { Thread.sleep(1); } catch (InterruptedException exc) { }
+
+                continue;
+            }
+
             try {
+                // This blocks a bit (can also be considered ample wait/sleep time)
                 udpSocket.receive(packet);
             } catch (SocketTimeoutException exc) {
                 /* Do nothing special yet (only consider last packet for now)
@@ -182,11 +196,15 @@ public class UdpRoverConnection extends Thread {
                         }
                     }
                 } else if (payload.equals("OKC 0.00,0.00")) {
+                    stopSentMillis = 0;
+                    lastStopCommand = null;
+
                     Log.w(TAG, "Stop confirmed");
                 } else {
                     //Log.e(TAG, "Got control response "+payload);
                 }
-                // TODO can also check for stop packets - and send again if necessary
+
+                Thread.yield();
 
                 continue;
             }
@@ -196,30 +214,31 @@ public class UdpRoverConnection extends Thread {
                 continue;
             }
 
-            int timestamp = (data[2] << 24) & 0xff000000 | (data[3] << 16) & 0xff0000 | (data[4] << 8) & 0xff00 | data[5] & 0xff;
+            int timestamp = readInt(data, 2);
 
             if (timestamp < 0) {
                 Log.e(TAG, "Received bogus packet timestamp "+timestamp);
                 continue;
             }
 
-            int packetNumber = (data[6] << 8) & 0xff00 | data[7] & 0xff;
+            int packetNumber = readShort(data, 6);
 
             if (packetNumber < 0) {
                 Log.e(TAG, "Received bogus packet number "+packetNumber);
                 continue;
             }
 
-            int packetsForThisImage = (data[8] << 8) & 0xff00 | data[9] & 0xff;
+            int packetsForThisImage = readShort(data, 8);
 
             if (packetsForThisImage < 1) {
                 Log.e(TAG, "Received bogus packet total "+packetsForThisImage);
                 continue;
             }
 
+            /*
             if (receivedPackets % 100 == 0) {
                 Log.i(TAG, "Got 100th packet "+timestamp+" "+packetNumber+"/"+packetsForThisImage+ " of "+shouldHaveReceivedPackets);
-            }
+            }*/
 
             if (highestLastTimestamp != -1 && timestamp < highestLastTimestamp - 5000) {
                 // Consider this a server reset
@@ -437,13 +456,22 @@ public class UdpRoverConnection extends Thread {
                 lastStatisticsOutMillis = now;
             }
 
-            try { Thread.sleep(1); } catch (InterruptedException exc) { }
+            Thread.yield();
         }
 
         Log.w(TAG, "Udp receiver exited");
         udpSocket.close();
     }
 
+    private int readShort(byte[] data, int offset) {
+        return (data[offset] << 8) & 0xff00 | data[offset + 1] & 0xff;
+    }
+
+    private int readInt(byte[] data, int offset) {
+        return (data[offset] << 24) & 0xff000000 | (data[offset + 1] << 16) & 0xff0000 | (data[offset + 2] << 8) & 0xff00 | data[offset + 3] & 0xff;
+    }
+
+    /*
     private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
     private String asHex(byte[] buf, int offset, int length)
     {
@@ -455,7 +483,7 @@ public class UdpRoverConnection extends Thread {
         }
 
         return new String(chars);
-    }
+    }*/
 
     // TODO do not work so explicit
     private boolean entryAlive(ControlCommand entry) {
@@ -471,5 +499,10 @@ public class UdpRoverConnection extends Thread {
         }
 
         return false;
+    }
+
+    private boolean isStopCommand(ControlCommand entry)
+    {
+        return entry.controlRequest.endsWith(" 0");
     }
 }
