@@ -113,4 +113,8 @@ public class UdpDataHolder {
     public int getMaximumPacketCount() {
         return maximumPacketCount;
     }
+
+    public int getTimestamp() {
+        return timestamp;
+    }
 }

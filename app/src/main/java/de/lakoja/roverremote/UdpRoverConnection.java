@@ -23,7 +23,11 @@ public class UdpRoverConnection extends Thread {
     private static final String IMAGE_PACKET_HEADER = "RI";
     private static final String REREQUEST_PACKET_HEADER = "MN";
     private static final String CONTROL_PACKET_HEADER = "CT";
-    private static final int UDP_PACKET_DATA_LENGTH = 1200;
+    private static final int IMAGE_PACKET_DATA_LENGTH = 1200;
+    // packet header + packet number (for image) + of total packets (for image) + timestamp
+    private static final int IMAGE_HEADER_LENGTH = 2 + 2 + 2 + 4;
+    private static final int MIN_IMAGE_PACKET_LEN = IMAGE_HEADER_LENGTH + 1;
+    private static final int MAX_IMAGE_PACKET_LEN = IMAGE_HEADER_LENGTH + IMAGE_PACKET_DATA_LENGTH;
 
     private static final long ENTRY_TOO_OLD = 300;
     private static final long ENTRY_STATUS_TOO_OLD = 800;
@@ -44,9 +48,22 @@ public class UdpRoverConnection extends Thread {
     private long stopSentMillis = 0;
     private ControlCommand lastStopCommand = null;
 
+    private DatagramSocket udpSocket = null;
+    private int receivedPackets = 0;
+    private int problemFreeImages = 0;
+    private int problematicImages = 0;
+    private int recoveredImages = 0;
+    private int shouldHaveReceivedPackets = 0;
+    
+    private DatagramPacket packet = null;
+    private DatagramPacket returnPacket = null;
+    
     public UdpRoverConnection(int port, InetAddress returnServerAddress) {
         this.port = port;
         this.returnServerAddress = returnServerAddress;
+
+        packet = new DatagramPacket(new byte[1500], 1500);
+        returnPacket = new DatagramPacket(new byte[500], 500, returnServerAddress, port);
     }
 
     public void setImageListener(ImageListener imageListener) {
@@ -66,8 +83,7 @@ public class UdpRoverConnection extends Thread {
     }
 
     @Override
-    public void run() {
-        DatagramSocket udpSocket = null;
+    public synchronized void start() {
         try {
             udpSocket = new DatagramSocket(port);
             udpSocket.setReceiveBufferSize(30000);
@@ -76,23 +92,20 @@ public class UdpRoverConnection extends Thread {
             Log.e(TAG, "Cannot create UDP socket " + exc.getMessage());
             return;
         }
+        
+        receivedPackets = 0;
+        problemFreeImages = 0;
+        problematicImages = 0;
+        recoveredImages = 0;
+        shouldHaveReceivedPackets = 0;
+        
+        super.start();
+    }
 
-        int receivedPackets = 0;
-        int problemFreeImages = 0;
-        int problematicImages = 0;
-        int recoveredImages = 0;
-        int shouldHaveReceivedPackets = 0;
-
+    @Override
+    public void run() {
         Log.i(TAG, "Opened UDP receiver with "+returnServerAddress);
 
-        DatagramPacket packet = new DatagramPacket(new byte[1500], 1500);
-        DatagramPacket returnPacket = new DatagramPacket(new byte[500], 500, returnServerAddress, port);
-
-        // packet header + packet number (for image) + of total packets (for image) + timestamp
-        int headerLength = 2 + 2 + 2 + 4;
-
-        int minimumLength = headerLength + 1;
-        int maximumLength = headerLength + UDP_PACKET_DATA_LENGTH;
 
         int lastPacketNumber = -1;
         int highestLastTimestamp = -1;
@@ -105,60 +118,30 @@ public class UdpRoverConnection extends Thread {
                 lastStopCommand = null;
             } else if (!commandQueue.isEmpty()) {
                 ControlCommand queuedCommand = commandQueue.remove();
-                if (entryAlive(command)) {
+                if (entryAlive(queuedCommand)) {
                     command = queuedCommand;
                 }
             }
 
             if (command != null) {
-                ByteArrayOutputStream bos = new ByteArrayOutputStream(50);
-                DataOutputStream dos = new DataOutputStream(bos);
-                try {
-                    dos.writeBytes(CONTROL_PACKET_HEADER);
-                    dos.writeBytes(command.controlRequest);
-
-                    returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
-                    udpSocket.send(returnPacket);
-
-                    if (isStopCommand(command) && stopSentMillis == 0) {
-                        stopSentMillis = System.currentTimeMillis();
-                        lastStopCommand = command;
-                    }
-
-                    // TODO make more robust
-
-                    //Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
-                } catch (IOException exc) {
-                    Log.e(TAG, "Problem during sending (control) " + exc.getMessage());
-                }
+                sendCommandPacket(command);
 
                 try { Thread.sleep(1); } catch (InterruptedException exc) { }
 
                 continue;
             }
 
+            boolean received = false;
             try {
-                // This blocks a bit (can also be considered ample wait/sleep time)
-                udpSocket.receive(packet);
-            } catch (SocketTimeoutException exc) {
-                /* Do nothing special yet (only consider last packet for now)
-                if (lastPacketNumber != -1 && highestLastTimestamp != -1) {
-                    UdpDataHolder lastImageDataHolder = multipleImageData.get(highestLastTimestamp);
-
-                    if (null != lastImageDataHolder) {
-                        if (!lastImageDataHolder.isDataComplete() && !lastImageDataHolder.isRepairUnderway()) {
-
-                        }
-                    }
-                }*/
-                continue;
-            } catch (IOException exc2) {
-                Log.e(TAG, "Cannot receive UDP packet " + exc2.getMessage());
+                received  = receivePacket();
+            } catch (IOException exc) {
+                Log.e(TAG, "Cannot receive UDP packet " + exc.getMessage());
                 break;
             }
 
-            lastPacketReceiveMillis = System.currentTimeMillis();
-            receivedPackets++;
+            if (!received) {
+                continue;
+            }
 
             if (packet.getLength() < 2) {
                 Log.e(TAG, "Packet really too short " + packet.getLength());
@@ -175,42 +158,15 @@ public class UdpRoverConnection extends Thread {
 
             if (packetHeader.equals(CONTROL_PACKET_HEADER)) {
                 String payload = new String(data, 2, packet.getLength() - 2);
-
-                // TODO should probably be "STATUS"
-                if (payload.startsWith("VOLT ")) {
-                    if (statusListener != null) {
-                        StringTokenizer tokenizer = new StringTokenizer(payload, " ");
-                        if (tokenizer.countTokens() >= 2) {
-                            tokenizer.nextToken();
-                            String voltageRaw = tokenizer.nextToken();
-                            try {
-                                float voltage = Float.parseFloat(voltageRaw);
-                                RoverStatus status = new RoverStatus(false, false, false, voltage);
-
-                                statusListener.informRoverStatus(status);
-                            } catch (NumberFormatException exc) {
-                                Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
-                            }
-                        } else {
-                            Log.e(TAG, "False rover status reply; too few tokens: "+payload);
-                        }
-                    }
-                } else if (payload.equals("OKC 0.00,0.00")) {
-                    stopSentMillis = 0;
-                    lastStopCommand = null;
-
-                    Log.w(TAG, "Stop confirmed");
-                } else {
-                    //Log.e(TAG, "Got control response "+payload);
-                }
+                handleControlPacket(payload);
 
                 Thread.yield();
 
                 continue;
             }
 
-            if (packet.getLength() < minimumLength || packet.getLength() > maximumLength || !packetHeader.equals(IMAGE_PACKET_HEADER)) {
-                Log.e(TAG, "Received bogus packet "+packetHeader+ " with length "+packet.getLength());
+            if (packet.getLength() < MIN_IMAGE_PACKET_LEN || packet.getLength() > MAX_IMAGE_PACKET_LEN || !packetHeader.equals(IMAGE_PACKET_HEADER)) {
+                Log.e(TAG, "Received bogus image packet "+packetHeader+ " with length "+packet.getLength());
                 continue;
             }
 
@@ -247,9 +203,6 @@ public class UdpRoverConnection extends Thread {
                 Log.w(TAG, "Detected a server reset. Resetting timestamp.");
             }
 
-            //Log.i(TAG, "Got packet "+timestamp+" "+packetNumber+"/"+packetsForThisImage);
-            //Log.i(TAG, "Got packet "+timestamp+" first byte "+asHex(data, headerLength, 1));
-
             UdpDataHolder thisImageDataHolder = multipleImageData.get(timestamp);
             boolean isRepairData = false;
 
@@ -258,7 +211,7 @@ public class UdpRoverConnection extends Thread {
                     // TODO consider server reset (starts from low image timestamps
                     Log.w(TAG, "Discarding data for old image " + timestamp + " highest " + highestLastTimestamp);
                 } else {
-                    thisImageDataHolder = new UdpDataHolder(timestamp, UDP_PACKET_DATA_LENGTH);
+                    thisImageDataHolder = new UdpDataHolder(timestamp, IMAGE_PACKET_DATA_LENGTH);
                     multipleImageData.put(timestamp, thisImageDataHolder);
                 }
             } else {
@@ -303,26 +256,7 @@ public class UdpRoverConnection extends Thread {
                             if (lastPacketsMissing.length > 3) {
                                 Log.w(TAG, "Too many packets missing for timestamp " + highestLastTimestamp + " missing " + lastPacketsMissing.length + "/"+lastImageDataHolder.getMaximumPacketCount()+". Discarding.");
                             } else {
-                                // re-request that data
-
-                                ByteArrayOutputStream bos = new ByteArrayOutputStream(20);
-                                DataOutputStream dos = new DataOutputStream(bos);
-                                try {
-                                    dos.writeBytes(REREQUEST_PACKET_HEADER);
-                                    dos.writeInt(highestLastTimestamp);
-                                    for (int num : lastPacketsMissing) {
-                                        dos.writeShort(num);
-                                    }
-
-                                    returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
-                                    udpSocket.send(returnPacket);
-
-                                    shouldHaveReceivedPackets += lastPacketsMissing.length;
-
-                                    Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
-                                } catch (IOException exc) {
-                                    Log.e(TAG, "Problem during sending (rerequest) " + exc.getMessage());
-                                }
+                                sendRerequestPacket(highestLastTimestamp, lastPacketsMissing);
                             }
                         }
                     } else {
@@ -334,61 +268,10 @@ public class UdpRoverConnection extends Thread {
             }
 
             if (thisImageDataHolder != null) {
-                thisImageDataHolder.add(packetNumber, packetsForThisImage, data, headerLength, packet.getLength() - headerLength);
+                thisImageDataHolder.add(packetNumber, packetsForThisImage, data, IMAGE_HEADER_LENGTH, packet.getLength() - IMAGE_HEADER_LENGTH);
 
                 if (thisImageDataHolder.isDataComplete()) {
-                    int imageSize = thisImageDataHolder.getData().length;
-                    int receiveMillis = thisImageDataHolder.getReceiveMillis();
-
-                    if (imageSize > 0 && receiveMillis > 0) {
-                        float kbps = (imageSize / 1024.0f) / (receiveMillis / 1000.0f);
-
-                        // TODO this dequeue and enqueue with mean is rather awkward
-                        if (lastTransfersKbps.size() == 0) {
-                            lastTransferKbpsMean = kbps;
-                        } else if (lastTransfersKbps.size() > 2) {
-                            // dequeue oldest one
-                            float oldestKbps = lastTransfersKbps.remove();
-                            lastTransferKbpsMean = ((lastTransferKbpsMean * (lastTransfersKbps.size() + 1)) - oldestKbps) / lastTransfersKbps.size();
-                        }
-
-                        lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
-                        lastTransfersKbps.add(kbps);
-                    } else {
-                        Log.w(TAG, "Image receive data bogus; no kbps; image size or bytes 0 "+imageSize+","+receiveMillis);
-                    }
-
-                    if (thisImageDataHolder.isRepairUnderway()) {
-                        recoveredImages++;
-                        Log.i(TAG, "Found repaired image "+timestamp+" kbps "+lastTransferKbpsMean);
-                    } else {
-                        Log.i(TAG, "Found image "+timestamp+" kbps "+lastTransferKbpsMean+" from "+imageSize+" in "+receiveMillis);
-                    }
-
-                    if (timestamp < lastReportedTimestamp) {
-                        Log.w(TAG, "Complete image too old "+timestamp);
-                    } else {
-                        byte[] imageData = thisImageDataHolder.getData();
-
-                        Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
-
-                        if (bmp == null) {
-                            // TODO must be shown more prominently
-                            Log.e(TAG, "Found illegal image");
-
-                            if (imageSize >= 5) {
-                                Log.e(TAG, "first 5 bytes " + String.format("%x", imageData[0]) + String.format("%x", imageData[1]) + String.format("%x", imageData[2]) + String.format("%x", imageData[3]) + String.format("%x", imageData[4]));
-                                Log.e(TAG, "last 5 bytes " + String.format("%x", imageData[imageSize - 5]) + String.format("%x", imageData[imageSize - 4]) + String.format("%x", imageData[imageSize - 3]) + String.format("%x", imageData[imageSize - 2]) + String.format("%x", imageData[imageSize - 1]));
-                            }
-                        } else {
-                            //Log.i(TAG, "Found image " + bmp.getWidth());
-
-                            if (imageListener != null) {
-                                imageListener.imagePresent(bmp, timestamp, imageData, lastTransferKbpsMean);
-                                lastReportedTimestamp = timestamp;
-                            }
-                        }
-                    }
+                    handleFinishedImage(thisImageDataHolder);
                 } else {
                     if (packetNumber > lastPacketNumber + 1) {
                         //Log.w(TAG, "Missing "+(lastPacketNumber + 1));
@@ -397,43 +280,8 @@ public class UdpRoverConnection extends Thread {
                     // else packetNumber < lastPacketNumber is possible for a new image
 
                     if (packetNumber == packetsForThisImage - 1 && !thisImageDataHolder.isRepairUnderway()) {
-                        // do something if "last" packet received but some are missing
-                        // TODO also consider last packet missing (check after some time when packet received - see above SocketTimeoutException)
-
-                        // TODO double code above
-
-                        int[] packetsMissing = thisImageDataHolder.currentlyMissingPackets();
-
-                        if (packetsMissing.length > 0) {
-                            thisImageDataHolder.setRepairUnderway(true);
-
-                            if (packetsMissing.length > 3) {
-                                Log.w(TAG, "Too many packets missing for timestamp " + highestLastTimestamp + " missing " + packetsMissing.length + "/"+thisImageDataHolder.getMaximumPacketCount()+". Discarding.");
-                            } else {
-                                // re-request that data
-
-                                ByteArrayOutputStream bos = new ByteArrayOutputStream(20);
-                                DataOutputStream dos = new DataOutputStream(bos);
-                                try {
-                                    dos.writeBytes(REREQUEST_PACKET_HEADER);
-                                    dos.writeInt(highestLastTimestamp);
-                                    for (int num : packetsMissing) {
-                                        dos.writeShort(num);
-                                    }
-
-                                    returnPacket.setData(bos.toByteArray()); // this crushes the existing data to length
-                                    udpSocket.send(returnPacket);
-
-                                    shouldHaveReceivedPackets += packetsMissing.length;
-
-                                    Log.i(TAG, "Rerequesting (1) (at least) " + timestamp + " " + packetsMissing[0]);
-                                } catch (IOException exc) {
-                                    Log.e(TAG, "Problem during sending (rerequest) " + exc.getMessage());
-                                }
-                            }
-                        }
+                        handleImageNearlyFinished(highestLastTimestamp, thisImageDataHolder);
                     }
-
                 }
 
                 // TODO is this always correct/needed/correctly named? Is wrong above when finding out about repaired images
@@ -444,23 +292,187 @@ public class UdpRoverConnection extends Thread {
                 Log.w(TAG, "No image holder for "+timestamp+" "+packetNumber);
             }
 
-            long now = System.currentTimeMillis();
-            if (now - lastStatisticsOutMillis > 1500 && shouldHaveReceivedPackets > 0) {
-                double recPerc = (receivedPackets/(double)shouldHaveReceivedPackets) * 100;
-
-                Log.i(TAG, "Received " + receivedPackets + " packets of "
-                        + shouldHaveReceivedPackets + " " + (new DecimalFormat("#.##").format(recPerc))
-                        + "% Images no-problem/reconstructed/problem "
-                        + problemFreeImages + "/" + recoveredImages + "/" + (problematicImages-recoveredImages));
-
-                lastStatisticsOutMillis = now;
-            }
+            printStatistics();
 
             Thread.yield();
         }
 
         Log.w(TAG, "Udp receiver exited");
         udpSocket.close();
+        udpSocket = null;
+    }
+
+    private boolean receivePacket() throws IOException {
+        try {
+            udpSocket.receive(packet);
+        } catch (SocketTimeoutException exc) {
+            /* Do nothing special yet (only consider last packet for now)
+            if (lastPacketNumber != -1 && highestLastTimestamp != -1) {
+                UdpDataHolder lastImageDataHolder = multipleImageData.get(highestLastTimestamp);
+
+                if (null != lastImageDataHolder) {
+                    if (!lastImageDataHolder.isDataComplete() && !lastImageDataHolder.isRepairUnderway()) {
+
+                    }
+                }
+            }*/
+
+            return false;
+        }
+
+        lastPacketReceiveMillis = System.currentTimeMillis();
+        receivedPackets++;
+
+        return true;
+    }
+
+    private void handleControlPacket(String payload) {
+        // TODO should probably be "STATUS"
+        if (payload.startsWith("VOLT ")) {
+            if (statusListener != null) {
+                StringTokenizer tokenizer = new StringTokenizer(payload, " ");
+                if (tokenizer.countTokens() >= 2) {
+                    tokenizer.nextToken();
+                    String voltageRaw = tokenizer.nextToken();
+                    try {
+                        float voltage = Float.parseFloat(voltageRaw);
+                        RoverStatus status = new RoverStatus(false, false, false, voltage);
+
+                        statusListener.informRoverStatus(status);
+                    } catch (NumberFormatException exc) {
+                        Log.e(TAG, "False rover status reply; cannot parse voltage: "+voltageRaw);
+                    }
+                } else {
+                    Log.e(TAG, "False rover status reply; too few tokens: "+payload);
+                }
+            }
+        } else if (payload.equals("OKC 0.00,0.00")) {
+            stopSentMillis = 0;
+            lastStopCommand = null;
+
+            Log.w(TAG, "Stop confirmed");
+        } else {
+            //Log.e(TAG, "Got control response "+payload);
+        }
+    }
+    private void handleImageNearlyFinished(int highestLastTimestamp, UdpDataHolder dataHolder) {
+        int timestamp = dataHolder.getTimestamp();
+        // do something if "last" packet received but some are missing
+        // TODO also consider last packet missing (check after some time when packet received - see above SocketTimeoutException)
+
+        // TODO double code above
+
+        int[] packetsMissing = dataHolder.currentlyMissingPackets();
+
+        if (packetsMissing.length > 0) {
+            dataHolder.setRepairUnderway(true);
+
+            if (packetsMissing.length > 3) {
+                Log.w(TAG, "Too many packets missing for timestamp " + highestLastTimestamp + " missing " + packetsMissing.length + "/"+dataHolder.getMaximumPacketCount()+". Discarding.");
+            } else {
+                sendRerequestPacket(highestLastTimestamp, packetsMissing);
+            }
+        }
+    }
+
+    private void handleFinishedImage(UdpDataHolder dataHolder) {
+        int timestamp = dataHolder.getTimestamp();
+        int imageSize = dataHolder.getData().length;
+        int receiveMillis = dataHolder.getReceiveMillis();
+
+        if (imageSize > 0 && receiveMillis > 0) {
+            float kbps = (imageSize / 1024.0f) / (receiveMillis / 1000.0f);
+
+            // TODO this dequeue and enqueue with mean is rather awkward
+            if (lastTransfersKbps.size() == 0) {
+                lastTransferKbpsMean = kbps;
+            } else if (lastTransfersKbps.size() > 2) {
+                // dequeue oldest one
+                float oldestKbps = lastTransfersKbps.remove();
+                lastTransferKbpsMean = ((lastTransferKbpsMean * (lastTransfersKbps.size() + 1)) - oldestKbps) / lastTransfersKbps.size();
+            }
+
+            lastTransferKbpsMean = (lastTransferKbpsMean * lastTransfersKbps.size() + kbps) / (lastTransfersKbps.size() + 1);
+            lastTransfersKbps.add(kbps);
+        } else {
+            Log.w(TAG, "Image receive data bogus; no kbps; image size or bytes 0 "+imageSize+","+receiveMillis);
+        }
+
+        if (dataHolder.isRepairUnderway()) {
+            recoveredImages++;
+            Log.i(TAG, "Found repaired image "+timestamp+" kbps "+lastTransferKbpsMean);
+        } else {
+            Log.i(TAG, "Found image "+timestamp+" kbps "+lastTransferKbpsMean+" from "+imageSize+" in "+receiveMillis);
+        }
+
+        if (timestamp < lastReportedTimestamp) {
+            Log.w(TAG, "Complete image too old "+timestamp);
+        } else {
+            byte[] imageData = dataHolder.getData();
+
+            Bitmap bmp = BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
+
+            if (bmp == null) {
+                // TODO must be shown more prominently
+                Log.e(TAG, "Found illegal image");
+
+                if (imageSize >= 5) {
+                    Log.e(TAG, "first 5 bytes " + asHex(imageData, 0, 5));
+                    Log.e(TAG, "last 5 bytes " + asHex(imageData, imageSize-5, 5));
+                }
+            } else {
+                //Log.i(TAG, "Found image " + bmp.getWidth());
+
+                if (imageListener != null) {
+                    imageListener.imagePresent(bmp, timestamp, imageData, lastTransferKbpsMean);
+                    lastReportedTimestamp = timestamp;
+                }
+            }
+        }
+    }
+
+    private void sendCommandPacket(ControlCommand command) {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream(50);
+        DataOutputStream dos = new DataOutputStream(bos);
+        try {
+            dos.writeBytes(CONTROL_PACKET_HEADER);
+            dos.writeBytes(command.controlRequest);
+
+            sendPacket(bos.toByteArray());
+
+            if (isStopCommand(command) && stopSentMillis == 0) {
+                stopSentMillis = System.currentTimeMillis();
+                lastStopCommand = command;
+            }
+        } catch (IOException exc) {
+            Log.e(TAG, "Problem during sending (control) " + exc.getMessage());
+        }
+    }
+
+    // TODO could take data holder as argument??
+    private void sendRerequestPacket(int highestLastTimestamp, int[] lastPacketsMissing) {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream(40);
+        DataOutputStream dos = new DataOutputStream(bos);
+        try {
+            dos.writeBytes(REREQUEST_PACKET_HEADER);
+            dos.writeInt(highestLastTimestamp);
+            for (int num : lastPacketsMissing) {
+                dos.writeShort(num);
+            }
+
+            sendPacket(bos.toByteArray());
+
+            shouldHaveReceivedPackets += lastPacketsMissing.length;
+
+            Log.i(TAG, "Rerequesting (2) (at least) " + highestLastTimestamp + " " + lastPacketsMissing[0]);
+        } catch (IOException exc) {
+            Log.e(TAG, "Problem during sending (rerequest) " + exc.getMessage());
+        }
+    }
+
+    private void sendPacket(byte[] data) throws IOException {
+        returnPacket.setData(data); // this crushes the existing data to length
+        udpSocket.send(returnPacket);
     }
 
     private int readShort(byte[] data, int offset) {
@@ -471,7 +483,6 @@ public class UdpRoverConnection extends Thread {
         return (data[offset] << 24) & 0xff000000 | (data[offset + 1] << 16) & 0xff0000 | (data[offset + 2] << 8) & 0xff00 | data[offset + 3] & 0xff;
     }
 
-    /*
     private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
     private String asHex(byte[] buf, int offset, int length)
     {
@@ -483,7 +494,7 @@ public class UdpRoverConnection extends Thread {
         }
 
         return new String(chars);
-    }*/
+    }
 
     // TODO do not work so explicit
     private boolean entryAlive(ControlCommand entry) {
@@ -504,5 +515,19 @@ public class UdpRoverConnection extends Thread {
     private boolean isStopCommand(ControlCommand entry)
     {
         return entry.controlRequest.endsWith(" 0");
+    }
+
+    private void printStatistics() {
+        long now = System.currentTimeMillis();
+        if (now - lastStatisticsOutMillis > 2500 && shouldHaveReceivedPackets > 0) {
+            double recPerc = (receivedPackets/(double)shouldHaveReceivedPackets) * 100;
+
+            Log.i(TAG, "Received " + receivedPackets + " packets of "
+                    + shouldHaveReceivedPackets + " " + (new DecimalFormat("#.##").format(recPerc))
+                    + "% Images no-problem/reconstructed/problem "
+                    + problemFreeImages + "/" + recoveredImages + "/" + (problematicImages-recoveredImages));
+
+            lastStatisticsOutMillis = now;
+        }
     }
 }
